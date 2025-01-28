@@ -1,13 +1,21 @@
-from fastapi import FastAPI, HTTPException
-import sqlite3
-import requests
-import json
 import os
+import requests
 import zipfile
+import json
+from fastapi import FastAPI, File, UploadFile, HTTPException
+import sqlite3
+from typing import Optional
 import re
-from crx_analyzer.download import download_crx  # Importing the CRX download function
 
 app = FastAPI()
+
+# DeepSeek API URL (replace with actual URL)
+DEEPSEEK_API_URL = "https://api.deepseek.com/v1/summarize"
+
+# User-Agent and Chrome/Edge version (for downloading CRX)
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+CHROME_VERSION = "131.0.6778.265"
+EDGE_VERSION = "130.0.2849.142"
 
 # Database setup
 def setup_database():
@@ -16,14 +24,28 @@ def setup_database():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS extensions (
             id TEXT PRIMARY KEY,
-            store_name TEXT,
             analysis_results TEXT,
-            extension_details TEXT,
             summary TEXT
         )
     """)
     conn.commit()
     return conn
+
+# Download Chrome extension CRX
+def get_chrome_extension_url(extension_id: str, chrome_version: str = CHROME_VERSION) -> str:
+    return f"https://clients2.google.com/service/update2/crx?response=redirect&os=mac&arch=arm64&os_arch=arm64&nacl_arch=arm&prod=chromecrx&prodchannel=&prodversion={chrome_version}&lang=en-US&acceptformat=crx3,puff&x=id%3D{extension_id}%26installsource%3Dondemand%26uc&authuser=0"
+
+# Download Edge extension CRX
+def get_edge_extension_url(extension_id: str, edge_version: str = EDGE_VERSION) -> str:
+    return f"https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&os=linux&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromiumcrx&prodchannel=dev&prodversion={edge_version}&lang=en-US&acceptformat=crx3&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
+
+# Download extension
+def download_extension(url: str, output_path: str) -> None:
+    response = requests.get(url, allow_redirects=True, headers={"User-Agent": USER_AGENT})
+    response.raise_for_status()
+    
+    with open(output_path, "wb") as f:
+        f.write(response.content)
 
 # Analyze CRX file
 def analyze_crx_file(file_path: str):
@@ -35,12 +57,13 @@ def analyze_crx_file(file_path: str):
     with open(manifest_path, 'r') as f:
         manifest = json.load(f)
 
-    # Analyze permissions
     permissions = manifest.get("permissions", [])
     high_risk_permissions = ["storage", "tabs", "webRequest", "webRequestBlocking"]
-    risk_score = sum(1 for perm in permissions if perm in high_risk_permissions)
+    risk_score = 0
+    for perm in permissions:
+        if perm in high_risk_permissions:
+            risk_score += 1
 
-    # Analyze JavaScript files
     scripts = []
     third_party_dependencies = []
     for root, _, files in os.walk(extract_dir):
@@ -51,10 +74,12 @@ def analyze_crx_file(file_path: str):
                     code = f.read()
                     is_obfuscated = detect_obfuscation(code)
                     dependencies = detect_third_party_dependencies(code)
-                    scripts.append({"file": file, "obfuscated": is_obfuscated})
+                    scripts.append({
+                        "file": file,
+                        "obfuscated": is_obfuscated
+                    })
                     third_party_dependencies.extend(dependencies)
 
-    # Clean up extracted files
     for root, _, files in os.walk(extract_dir):
         for file in files:
             os.remove(os.path.join(root, file))
@@ -63,7 +88,7 @@ def analyze_crx_file(file_path: str):
     return {
         "permissions_score": risk_score,
         "scripts": scripts,
-        "third_party_dependencies": list(set(third_party_dependencies)),  # Remove duplicates
+        "third_party_dependencies": list(set(third_party_dependencies))
     }
 
 def detect_obfuscation(code: str) -> bool:
@@ -72,108 +97,61 @@ def detect_obfuscation(code: str) -> bool:
     return False
 
 def detect_third_party_dependencies(code: str) -> list:
+    third_party_domains = []
     urls = re.findall(r'https?://[^\s"\']+', code)
-    return [url.split("//")[1].split("/")[0] for url in urls]
+    for url in urls:
+        domain = url.split("//")[1].split("/")[0]
+        third_party_domains.append(domain)
+    return third_party_domains
 
 # Summarize with DeepSeek
 def summarize_with_deepseek(analysis_results: dict):
-    # Retrieve DeepSeek API URL and API Key from environment variables
-    DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/summarize")  # Default URL if not set
-    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")  # Retrieve API key from environment
+    response = requests.post(DEEPSEEK_API_URL, json={"text": json.dumps(analysis_results)})
+    return response.json().get("summary", "")
+
+# API endpoint to analyze CRX file
+@app.post("/analyze")
+async def analyze_crx(extension_id: str, file: UploadFile = File(...)):
+    file_path = f"temp_{extension_id}.crx"
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
     
-    if not DEEPSEEK_API_KEY:
-        raise HTTPException(status_code=500, detail="DeepSeek API key is missing from environment variables.")
-    
-    # Prepare headers with the API key for authentication
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    # Make the request to DeepSeek API
-    response = requests.post(
-        DEEPSEEK_API_URL,
-        json={"text": json.dumps(analysis_results)},
-        headers=headers
-    )
-    
-    if response.status_code == 200:
-        return response.json().get("summary", "No summary provided.")
-    else:
-        raise HTTPException(status_code=response.status_code, detail="Failed to fetch summary from DeepSeek.")
-
-# URL templates for CRX downloads
-CHROME_CRX_URL = "https://clients2.google.com/service/update2/crx?response=redirect&os=mac&arch=arm64&os_arch=arm64&nacl_arch=arm&prod=chromecrx&prodchannel=&prodversion=115.0.5790.171&lang=en-US&acceptformat=crx3,puff&x=id%3D{extension_id}%26installsource%3Dondemand%26uc&authuser=0"
-EDGE_CRX_URL = "https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&os=linux&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromiumcrx&prodchannel=dev&prodversion=115.0.5790.171&lang=en-US&acceptformat=crx3&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
-
-# Fetch CRX file from the appropriate store using download function
-def fetch_crx(extension_id: str, store_name: str) -> str:
-    crx_file_path = download_crx(extension_id, store_name)
-    if not crx_file_path:
-        raise HTTPException(status_code=404, detail="Extension not found in the specified store.")
-    return crx_file_path
-
-# Extract extension details from CRX file
-def extract_extension_details(file_path: str):
-    extract_dir = "extracted_crx"
-    with zipfile.ZipFile(file_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_dir)
-
-    manifest_path = os.path.join(extract_dir, "manifest.json")
-    with open(manifest_path, 'r') as f:
-        manifest = json.load(f)
-
-    details = {
-        "name": manifest.get("name", "Unknown"),
-        "description": manifest.get("description", "No description available."),
-        "version": manifest.get("version", "Unknown"),
-    }
-
-    # Clean up extracted files
-    for root, _, files in os.walk(extract_dir):
-        for file in files:
-            os.remove(os.path.join(root, file))
-    os.rmdir(extract_dir)
-
-    return details
-
-# API endpoint
-@app.get("/analyze")
-def analyze_extension(extension_id: str, store_name: str):
     conn = setup_database()
     cursor = conn.cursor()
-
-    # Check if already in database
-    cursor.execute("SELECT analysis_results, extension_details, summary FROM extensions WHERE id = ? AND store_name = ?", (extension_id, store_name))
+    cursor.execute("SELECT analysis_results, summary FROM extensions WHERE id = ?", (extension_id,))
     result = cursor.fetchone()
+
     if result:
         return {
+            "status": "success",
             "analysis_results": json.loads(result[0]),
-            "extension_details": json.loads(result[1]),
-            "summary": result[2],
+            "summary": result[1]
         }
 
-    # Fetch CRX file
-    crx_file_path = fetch_crx(extension_id, store_name)
-
-    # Analyze and summarize
-    analysis_results = analyze_crx_file(crx_file_path)
-    extension_details = extract_extension_details(crx_file_path)
+    # If file not in database, download and analyze it
+    crx_url = get_chrome_extension_url(extension_id)
+    try:
+        download_extension(crx_url, file_path)
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Error downloading extension: {str(e)}")
+    
+    analysis_results = analyze_crx_file(file_path)
     summary = summarize_with_deepseek(analysis_results)
 
-    # Save to database
-    cursor.execute(
-        "INSERT INTO extensions (id, store_name, analysis_results, extension_details, summary) VALUES (?, ?, ?, ?, ?)",
-        (extension_id, store_name, json.dumps(analysis_results), json.dumps(extension_details), summary),
-    )
+    cursor.execute("INSERT INTO extensions (id, analysis_results, summary) VALUES (?, ?, ?)",
+                   (extension_id, json.dumps(analysis_results), summary))
     conn.commit()
     conn.close()
 
-    # Clean up CRX file
-    os.remove(crx_file_path)
+    os.remove(file_path)
 
     return {
+        "status": "success",
         "analysis_results": analysis_results,
-        "extension_details": extension_details,
-        "summary": summary,
+        "summary": summary
     }
+
+# Run the app
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
