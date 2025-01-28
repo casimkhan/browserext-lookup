@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 
 # Backend API URL (replace with your Render backend URL)
-BACKEND_URL = "https://browserext-lookup.onrender.com"
+BACKEND_URL = "https://your-render-backend-url.onrender.com"
 
 # Streamlit app
 def main():
@@ -24,7 +24,11 @@ def main():
             if response.status_code == 200:
                 result = response.json()
                 st.success("Analysis complete!")
-                st.json(result["analysis_results"])
+                st.write("**Permissions Score:**", result["analysis_results"]["permissions_score"])
+                st.write("**Scripts:**")
+                st.json(result["analysis_results"]["scripts"])
+                st.write("**Third-Party Dependencies:**")
+                st.json(result["analysis_results"]["third_party_dependencies"])
                 st.write("**Summary:**", result["summary"])
             else:
                 st.error("An error occurred during analysis.")
