@@ -2,4 +2,5 @@ fastapi
 uvicorn
 requests
 sqlite3
+sqlite-utils
 python-multipart
