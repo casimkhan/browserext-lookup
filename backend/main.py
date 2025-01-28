@@ -5,6 +5,7 @@ import requests
 import os
 import zipfile
 import re
+import shutil  # Added for directory cleanup
 from typing import Optional
 
 app = FastAPI()
@@ -30,6 +31,7 @@ def setup_database():
 def analyze_crx_file(file_path: str):
     # Extract the CRX file
     extract_dir = "extracted_crx"
+    os.makedirs(extract_dir, exist_ok=True)  # Ensure the directory exists
     with zipfile.ZipFile(file_path, 'r') as zip_ref:
         zip_ref.extractall(extract_dir)
 
@@ -66,10 +68,7 @@ def analyze_crx_file(file_path: str):
                     third_party_dependencies.extend(dependencies)
 
     # Clean up extracted files
-    for root, _, files in os.walk(extract_dir):
-        for file in files:
-            os.remove(os.path.join(root, file))
-    os.rmdir(extract_dir)
+    shutil.rmtree(extract_dir)  # Safely remove the non-empty directory
 
     return {
         "permissions_score": risk_score,
