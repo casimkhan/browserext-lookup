@@ -3,6 +3,8 @@ import sqlite3
 import json
 import requests
 import os
+import zipfile
+import re
 from typing import Optional
 
 app = FastAPI()
@@ -26,14 +28,70 @@ def setup_database():
 
 # Analyze CRX file
 def analyze_crx_file(file_path: str):
-    with open(file_path, "rb") as f:
-        # Add your CRX analysis logic here
-        # For now, return a dummy result
-        return {
-            "permissions_score": 5,
-            "scripts": [],
-            "third_party_dependencies": []
-        }
+    # Extract the CRX file
+    extract_dir = "extracted_crx"
+    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_dir)
+
+    # Parse manifest.json
+    manifest_path = os.path.join(extract_dir, "manifest.json")
+    with open(manifest_path, 'r') as f:
+        manifest = json.load(f)
+
+    # Analyze permissions
+    permissions = manifest.get("permissions", [])
+    high_risk_permissions = ["storage", "tabs", "webRequest", "webRequestBlocking"]
+    risk_score = 0
+    for perm in permissions:
+        if perm in high_risk_permissions:
+            risk_score += 1
+
+    # Analyze JavaScript files
+    scripts = []
+    third_party_dependencies = []
+    for root, _, files in os.walk(extract_dir):
+        for file in files:
+            if file.endswith(".js"):
+                file_path = os.path.join(root, file)
+                with open(file_path, 'r') as f:
+                    code = f.read()
+                    # Detect obfuscation
+                    is_obfuscated = detect_obfuscation(code)
+                    # Detect third-party dependencies
+                    dependencies = detect_third_party_dependencies(code)
+                    scripts.append({
+                        "file": file,
+                        "obfuscated": is_obfuscated
+                    })
+                    third_party_dependencies.extend(dependencies)
+
+    # Clean up extracted files
+    for root, _, files in os.walk(extract_dir):
+        for file in files:
+            os.remove(os.path.join(root, file))
+    os.rmdir(extract_dir)
+
+    return {
+        "permissions_score": risk_score,
+        "scripts": scripts,
+        "third_party_dependencies": list(set(third_party_dependencies))  # Remove duplicates
+    }
+
+def detect_obfuscation(code: str) -> bool:
+    """Detect obfuscated or minified code."""
+    if re.search(r'\b(eval|function\([^)]*\)\{.*\})\b', code):
+        return True
+    return False
+
+def detect_third_party_dependencies(code: str) -> list:
+    """Detect third-party dependencies in JavaScript code."""
+    third_party_domains = []
+    # Look for URLs in the code
+    urls = re.findall(r'https?://[^\s"\']+', code)
+    for url in urls:
+        domain = url.split("//")[1].split("/")[0]
+        third_party_domains.append(domain)
+    return third_party_domains
 
 # Summarize with DeepSeek
 def summarize_with_deepseek(analysis_results: dict):
