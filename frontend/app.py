@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 
 # Backend API URL (replace with your Render backend URL)
-BACKEND_URL = "https://your-render-backend-url.onrender.com"
+BACKEND_URL = "https://browserext-lookup.onrender.com"
 
 # Streamlit app
 def main():
