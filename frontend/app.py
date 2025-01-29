@@ -17,13 +17,12 @@ def main():
         if not extension_id or not store_name:
             st.error("Please enter an Extension ID and select a store.")
         else:
-            # ✅ Define `params` correctly
-            params = {"extension_id": extension_id, "store_name": store_name.lower()}
+            # ✅ Use POST request instead of GET
+            payload = {"extension_id": extension_id, "store_name": store_name.lower()}
 
             try:
-                # ✅ Use `params` instead of `payload`
-                response = requests.get(f"{BACKEND_URL}/analyze", params=params)
-                response.raise_for_status()  # Raise error for non-200 responses
+                response = requests.post(f"{BACKEND_URL}/analyze", json=payload)
+                response.raise_for_status()  # Raise an error for non-200 responses
                 
                 result = response.json()
                 st.success("Analysis complete!")
