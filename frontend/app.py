@@ -1,10 +1,9 @@
 import streamlit as st
 import requests
 
-# Backend API URL (replace with your Render backend URL)
+# Backend API URL
 BACKEND_URL = "https://browserext-lookup.onrender.com"
 
-# Streamlit app
 def main():
     st.title("BrowserExt Lookup")
     st.write("Analyze browser extensions using their ID and CRX file.")
@@ -17,16 +16,21 @@ def main():
         if not extension_id or not store_name:
             st.error("Please enter an Extension ID and select a store.")
         else:
-            # ✅ Use POST request instead of GET
-            payload = {"extension_id": extension_id, "store_name": store_name.lower()}
+            # ✅ Ensure correct JSON format
+            payload = {
+                "extension_id": extension_id.strip(),  # Remove whitespace
+                "store_name": store_name.lower().strip()
+            }
+
+            headers = {"Content-Type": "application/json"}  # ✅ Explicitly set JSON header
 
             try:
-                response = requests.post(f"{BACKEND_URL}/analyze", json=payload)
-                response.raise_for_status()  # Raise an error for non-200 responses
-                
+                response = requests.post(f"{BACKEND_URL}/analyze", json=payload, headers=headers)
+                response.raise_for_status()
+
                 result = response.json()
                 st.success("Analysis complete!")
-                
+
                 # Display extension details
                 st.write("**Extension Details:**")
                 st.write("**Name:**", result["extension_details"].get("name", "N/A"))
