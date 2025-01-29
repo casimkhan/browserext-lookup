@@ -19,16 +19,17 @@ def main():
             # ✅ Ensure correct JSON format
             payload = {
                 "extension_id": extension_id.strip(),  # Remove whitespace
-                "store_name": store_name.lower().strip()
+                "store_name": store_name.lower().strip()  # Convert to lowercase (chrome, edge)
             }
 
             headers = {"Content-Type": "application/json"}  # ✅ Explicitly set JSON header
 
             try:
+                # Make the POST request to the backend
                 response = requests.post(f"{BACKEND_URL}/analyze", json=payload, headers=headers)
-                response.raise_for_status()
+                response.raise_for_status()  # Raise an exception for 4xx/5xx responses
 
-                result = response.json()
+                result = response.json()  # Parse the JSON response
                 st.success("Analysis complete!")
 
                 # Display extension details
