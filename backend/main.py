@@ -2,17 +2,17 @@ import os
 import requests
 import zipfile
 import json
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, HTTPException
 import sqlite3
-from typing import Optional
 import re
+from bs4 import BeautifulSoup
 
 app = FastAPI()
 
 # DeepSeek API URL (replace with actual URL)
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/summarize"
 
-# User-Agent and Chrome/Edge version (for downloading CRX)
+# User-Agent and browser versions
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 CHROME_VERSION = "131.0.6778.265"
 EDGE_VERSION = "130.0.2849.142"
@@ -31,15 +31,15 @@ def setup_database():
     conn.commit()
     return conn
 
-# Download Chrome extension CRX
-def get_chrome_extension_url(extension_id: str, chrome_version: str = CHROME_VERSION) -> str:
-    return f"https://clients2.google.com/service/update2/crx?response=redirect&os=mac&arch=arm64&os_arch=arm64&nacl_arch=arm&prod=chromecrx&prodversion={chrome_version}&lang=en-US&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
+# Get Chrome extension download URL
+def get_chrome_extension_url(extension_id: str) -> str:
+    return f"https://clients2.google.com/service/update2/crx?response=redirect&os=mac&arch=arm64&os_arch=arm64&nacl_arch=arm&prod=chromecrx&prodversion={CHROME_VERSION}&lang=en-US&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
 
-# Download Edge extension CRX
-def get_edge_extension_url(extension_id: str, edge_version: str = EDGE_VERSION) -> str:
-    return f"https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&os=linux&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromiumcrx&prodchannel=dev&prodversion={edge_version}&lang=en-US&acceptformat=crx3&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
+# Get Edge extension download URL
+def get_edge_extension_url(extension_id: str) -> str:
+    return f"https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&os=linux&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromiumcrx&prodchannel=dev&prodversion={EDGE_VERSION}&lang=en-US&acceptformat=crx3&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
 
-# Download extension
+# Download CRX file
 def download_extension(url: str, output_path: str) -> None:
     response = requests.get(url, allow_redirects=True, headers={"User-Agent": USER_AGENT})
     response.raise_for_status()
@@ -59,10 +59,7 @@ def analyze_crx_file(file_path: str):
 
     permissions = manifest.get("permissions", [])
     high_risk_permissions = ["storage", "tabs", "webRequest", "webRequestBlocking"]
-    risk_score = 0
-    for perm in permissions:
-        if perm in high_risk_permissions:
-            risk_score += 1
+    risk_score = sum(1 for perm in permissions if perm in high_risk_permissions)
 
     scripts = []
     third_party_dependencies = []
@@ -72,13 +69,11 @@ def analyze_crx_file(file_path: str):
                 file_path = os.path.join(root, file)
                 with open(file_path, 'r') as f:
                     code = f.read()
-                    is_obfuscated = detect_obfuscation(code)
-                    dependencies = detect_third_party_dependencies(code)
                     scripts.append({
                         "file": file,
-                        "obfuscated": is_obfuscated
+                        "obfuscated": detect_obfuscation(code)
                     })
-                    third_party_dependencies.extend(dependencies)
+                    third_party_dependencies.extend(detect_third_party_dependencies(code))
 
     for root, _, files in os.walk(extract_dir):
         for file in files:
@@ -91,20 +86,51 @@ def analyze_crx_file(file_path: str):
         "third_party_dependencies": list(set(third_party_dependencies))
     }
 
+# Detect JavaScript obfuscation
 def detect_obfuscation(code: str) -> bool:
-    if re.search(r'\b(eval|function\([^)]*\)\{.*\})\b', code):
-        return True
-    return False
+    return bool(re.search(r'\b(eval|function\([^)]*\)\{.*\})\b', code))
 
+# Detect third-party dependencies
 def detect_third_party_dependencies(code: str) -> list:
-    third_party_domains = []
     urls = re.findall(r'https?://[^\s"\']+', code)
-    for url in urls:
-        domain = url.split("//")[1].split("/")[0]
-        third_party_domains.append(domain)
-    return third_party_domains
+    return list(set(url.split("//")[1].split("/")[0] for url in urls))
 
-# Summarize with DeepSeek
+# Fetch extension details from Chrome/Edge Web Store
+def fetch_extension_details(extension_id: str, store_name: str):
+    if store_name.lower() == "chrome":
+        store_url = f"https://chrome.google.com/webstore/detail/{extension_id}"
+    elif store_name.lower() == "edge":
+        store_url = f"https://microsoftedge.microsoft.com/addons/detail/{extension_id}"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid store name. Must be 'chrome' or 'edge'.")
+
+    try:
+        response = requests.get(store_url, headers={"User-Agent": USER_AGENT})
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Extract metadata
+        name = soup.find("meta", {"property": "og:title"})["content"] if soup.find("meta", {"property": "og:title"}) else "N/A"
+        description = soup.find("meta", {"property": "og:description"})["content"] if soup.find("meta", {"property": "og:description"}) else "N/A"
+        
+        # Extract additional details (version, reviews, stars - can improve based on store structure)
+        version = "N/A"  
+        total_reviews = "N/A"
+        stars = "N/A"
+
+        return {
+            "name": name,
+            "description": description,
+            "version": version,
+            "total_reviews": total_reviews,
+            "stars": stars
+        }
+
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching extension details: {str(e)}")
+
+# Summarize analysis results with DeepSeek
 def summarize_with_deepseek(analysis_results: dict):
     response = requests.post(DEEPSEEK_API_URL, json={"text": json.dumps(analysis_results)})
     return response.json().get("summary", "")
@@ -112,7 +138,10 @@ def summarize_with_deepseek(analysis_results: dict):
 # API endpoint to analyze CRX file
 @app.post("/analyze")
 async def analyze_crx(extension_id: str, store_name: str):
-    # Determine whether to get Chrome or Edge extension URL
+    # Fetch extension details from web store
+    extension_details = fetch_extension_details(extension_id, store_name)
+
+    # Determine CRX URL
     if store_name.lower() == "chrome":
         crx_url = get_chrome_extension_url(extension_id)
     elif store_name.lower() == "edge":
@@ -126,7 +155,7 @@ async def analyze_crx(extension_id: str, store_name: str):
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"Error downloading extension: {str(e)}")
 
-    # Setup database and check if the extension is already analyzed
+    # Check if already analyzed
     conn = setup_database()
     cursor = conn.cursor()
     cursor.execute("SELECT analysis_results, summary FROM extensions WHERE id = ?", (extension_id,))
@@ -135,14 +164,16 @@ async def analyze_crx(extension_id: str, store_name: str):
     if result:
         return {
             "status": "success",
+            "extension_details": extension_details,
             "analysis_results": json.loads(result[0]),
             "summary": result[1]
         }
 
-    # Analyze the CRX file and save the results
+    # Analyze CRX
     analysis_results = analyze_crx_file(file_path)
     summary = summarize_with_deepseek(analysis_results)
 
+    # Save results in DB
     cursor.execute("INSERT INTO extensions (id, analysis_results, summary) VALUES (?, ?, ?)",
                    (extension_id, json.dumps(analysis_results), summary))
     conn.commit()
@@ -152,11 +183,12 @@ async def analyze_crx(extension_id: str, store_name: str):
 
     return {
         "status": "success",
+        "extension_details": extension_details,
         "analysis_results": analysis_results,
         "summary": summary
     }
 
-# Run the app
+# Run FastAPI server
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
