@@ -33,7 +33,7 @@ def setup_database():
 
 # Download Chrome extension CRX
 def get_chrome_extension_url(extension_id: str, chrome_version: str = CHROME_VERSION) -> str:
-    return f"https://clients2.google.com/service/update2/crx?response=redirect&os=mac&arch=arm64&os_arch=arm64&nacl_arch=arm&prod=chromecrx&prodchannel=&prodversion={chrome_version}&lang=en-US&acceptformat=crx3,puff&x=id%3D{extension_id}%26installsource%3Dondemand%26uc&authuser=0"
+    return f"https://clients2.google.com/service/update2/crx?response=redirect&os=mac&arch=arm64&os_arch=arm64&nacl_arch=arm&prod=chromecrx&prodversion={chrome_version}&lang=en-US&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
 
 # Download Edge extension CRX
 def get_edge_extension_url(extension_id: str, edge_version: str = EDGE_VERSION) -> str:
@@ -111,11 +111,22 @@ def summarize_with_deepseek(analysis_results: dict):
 
 # API endpoint to analyze CRX file
 @app.post("/analyze")
-async def analyze_crx(extension_id: str, file: UploadFile = File(...)):
+async def analyze_crx(extension_id: str, store_name: str):
+    # Determine whether to get Chrome or Edge extension URL
+    if store_name.lower() == "chrome":
+        crx_url = get_chrome_extension_url(extension_id)
+    elif store_name.lower() == "edge":
+        crx_url = get_edge_extension_url(extension_id)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid store name. Must be 'chrome' or 'edge'.")
+
     file_path = f"temp_{extension_id}.crx"
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
-    
+    try:
+        download_extension(crx_url, file_path)
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Error downloading extension: {str(e)}")
+
+    # Setup database and check if the extension is already analyzed
     conn = setup_database()
     cursor = conn.cursor()
     cursor.execute("SELECT analysis_results, summary FROM extensions WHERE id = ?", (extension_id,))
@@ -128,13 +139,7 @@ async def analyze_crx(extension_id: str, file: UploadFile = File(...)):
             "summary": result[1]
         }
 
-    # If file not in database, download and analyze it
-    crx_url = get_chrome_extension_url(extension_id)
-    try:
-        download_extension(crx_url, file_path)
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Error downloading extension: {str(e)}")
-    
+    # Analyze the CRX file and save the results
     analysis_results = analyze_crx_file(file_path)
     summary = summarize_with_deepseek(analysis_results)
 
