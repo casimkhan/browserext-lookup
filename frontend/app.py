@@ -17,11 +17,14 @@ def main():
         if not extension_id or not store_name:
             st.error("Please enter an Extension ID and select a store.")
         else:
-            # Send request to backend
+            # ✅ Define `params` correctly
             params = {"extension_id": extension_id, "store_name": store_name.lower()}
-            response = requests.get(f"{BACKEND_URL}/analyze", params=payload)
-            
-            if response.status_code == 200:
+
+            try:
+                # ✅ Use `params` instead of `payload`
+                response = requests.get(f"{BACKEND_URL}/analyze", params=params)
+                response.raise_for_status()  # Raise error for non-200 responses
+                
                 result = response.json()
                 st.success("Analysis complete!")
                 
@@ -43,8 +46,9 @@ def main():
 
                 # Display summary
                 st.write("**DeepSeek Summary:**", result.get("summary", "No summary provided."))
-            else:
-                st.error(f"An error occurred during analysis: {response.text}")
+
+            except requests.exceptions.RequestException as e:
+                st.error(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     main()
