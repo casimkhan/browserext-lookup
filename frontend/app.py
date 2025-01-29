@@ -19,7 +19,7 @@ def main():
         else:
             # Send request to backend
             params = {"extension_id": extension_id, "store_name": store_name.lower()}
-            response = requests.post(f"{BACKEND_URL}/analyze", json=payload)
+            response = requests.get(f"{BACKEND_URL}/analyze", params=payload)
             
             if response.status_code == 200:
                 result = response.json()
