@@ -175,9 +175,28 @@ class ExtensionAnalyzer:
                 
             return result
             
+        except HTTPException as e:
+            logger.error(f"Analysis failed: {str(e)}")
+            return {
+            "extension_details": None,  # Indicate that extension details are missing
+            "analysis_results": None,
+            "summary": f"Error: {str(e)}",
+            "metadata": {
+                "analyzed_at": datetime.utcnow().isoformat(),
+                "store": self.store_name
+            }
+        }
         except Exception as e:
             logger.error(f"Analysis failed: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e))
+            return {
+            "extension_details": None,  # Indicate that extension details are missing
+            "analysis_results": None,
+            "summary": f"Unexpected error: {str(e)}",
+            "metadata": {
+                "analyzed_at": datetime.utcnow().isoformat(),
+                "store": self.store_name
+            }
+        }
 
     async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
         """Get AI summary using OpenAI"""
