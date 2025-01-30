@@ -132,7 +132,14 @@ async def analyze_crx(body: dict = Body(...)):
 
     if not extension_id or not store_name:
         raise HTTPException(status_code=400, detail="Both 'extension_id', 'store_name' are required.")
-        
+  # Construct the CRX download URL
+    if store_name.lower() == "chrome":
+        crx_url = f"https://clients2.google.com/service/update2/crx?response=redirect&os=mac&arch=arm64&os_arch=arm64&nacl_arch=arm&prod=chromecrx&prodversion=120.0.0.0&lang=en-US&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
+    elif store_name.lower() == "edge":
+        crx_url = f"https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&os=linux&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromiumcrx&prodchannel=dev&prodversion=120.0.0.0&lang=en-US&acceptformat=crx3&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid store name. Must be 'chrome' or 'edge'.")
+      
     # Download CRX file
     try:
         response = requests.get(crx_url, allow_redirects=True, headers={"User-Agent": USER_AGENT})
