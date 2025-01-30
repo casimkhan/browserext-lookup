@@ -342,8 +342,8 @@ async def analyze_extension(
         )
 
     analyzer = ExtensionAnalyzer(extension_id, store_name)
-    background_tasks.add_task(analyzer.analyze_extension)
-    return {"message": "Analysis started in the background."}
+    result = await analyzer.analyze_extension() # Perform analysis sync
+    return result # return results directly
 
 if __name__ == "__main__":
     import uvicorn
