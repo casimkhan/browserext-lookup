@@ -2,8 +2,7 @@ import os
 import logging
 import json
 from typing import Dict, Any
-from fastapi import FastAPI, HTTPException, Body, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Body
 from datetime import datetime
 import sqlite3
 import requests
@@ -72,22 +71,6 @@ class ExtensionAnalyzer:
         self.store_name = store_name.lower()
         self.db = DatabaseManager()
     
-    def _extract_last_updated(self, soup: BeautifulSoup) -> str:
-        """Extract last updated date from the store page"""
-        # Try multiple selectors to find the last updated date
-        selectors = [
-            {"meta": {"itemprop": "dateModified"}},
-            {"span": {"class": "last-updated"}},
-            {"div": {"class": "last-updated-date"}}
-        ]
-        
-        for selector in selectors:
-            element = soup.find(**selector)
-            if element:
-                return element.get("content", element.text.strip())
-        
-        return "N/A"  # Return "N/A" if not found
-
     async def _get_cached_analysis(self):
         """Retrieve cached analysis result from the database if available."""
         with self.db.get_connection() as conn:
@@ -113,26 +96,60 @@ class ExtensionAnalyzer:
         try:
             response = requests.get(store_url, headers={"User-Agent": USER_AGENT})
             response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
-            
-            # Extract detailed store information
-            details = {
-                "name": self._extract_meta(soup, "og:title"),
-                "description": self._extract_meta(soup, "og:description"),
-                "version": self._extract_version(soup),
-                "total_reviews": self._extract_reviews(soup),
-                "stars": self._extract_rating(soup),
-                "last_updated": self._extract_last_updated(soup),
-                "developer": self._extract_developer(soup),
-                "size": self._extract_size(soup),
-                "category": self._extract_category(soup)
-            }
-            
-            return details
-            
+            html_content = response.text  # Get the raw HTML content
+            return await self._get_openai_extracted_details(html_content)  # Use OpenAI to extract details
         except Exception as e:
             logger.error(f"Failed to fetch store details: {str(e)}")
             raise HTTPException(status_code=404, detail="Extension not found in store")
+
+    async def _get_openai_extracted_details(self, html_content: str) -> Dict[str, Any]:
+        """Extract extension details using OpenAI"""
+        try:
+            # Prepare the input text for OpenAI
+            prompt = (
+                f"Extract the following details from the Chrome Web Store page HTML content below:\n"
+                f"- Name\n"
+                f"- Description\n"
+                f"- Version\n"
+                f"- Total Reviews\n"
+                f"- Stars (rating)\n"
+                f"- Last Updated\n"
+                f"- Developer\n"
+                f"- Size\n"
+                f"- Category\n\n"
+                f"Return the details in JSON format.\n\n"
+                f"HTML Content:\n{html_content}"
+            )
+            
+            # Call OpenAI API
+            response = client.chat.completions.create(
+                model="gpt-4",  # Use the appropriate model
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that extracts structured data from HTML content."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500,  # Adjust based on your needs
+                temperature=0.3  # Lower temperature for more precise responses
+            )
+            
+            # Extract the JSON response from OpenAI
+            json_response = response.choices[0].message.content
+            details = json.loads(json_response)  # Parse the JSON response
+            return details
+            
+        except Exception as e:
+            logger.error(f"OpenAI API call failed: {str(e)}")
+            return {
+                "name": "N/A",
+                "description": "N/A",
+                "version": "N/A",
+                "total_reviews": 0,
+                "stars": 0.0,
+                "last_updated": "N/A",
+                "developer": "N/A",
+                "size": "N/A",
+                "category": "N/A"
+            }
 
     async def analyze_extension(self) -> Dict[str, Any]:
         """Complete extension analysis workflow"""
@@ -142,7 +159,7 @@ class ExtensionAnalyzer:
             if cached:
                 return cached
 
-            # Fetch store details
+            # Fetch store details using OpenAI
             store_details = await self.fetch_store_details()
             
             # Download and analyze CRX
@@ -165,6 +182,7 @@ class ExtensionAnalyzer:
                     "store": self.store_name
                 }
             }
+            
             # Log the response
             logger.info(f"Backend response: {result}")
             
@@ -174,31 +192,31 @@ class ExtensionAnalyzer:
             # Cleanup
             if os.path.exists(crx_path):
                 os.remove(crx_path)
-                
+               
             return result
             
         except HTTPException as e:
             logger.error(f"Analysis failed: {str(e)}")
             return {
-            "extension_details": None,  # Indicate that extension details are missing
-            "analysis_results": None,
-            "summary": f"Error: {str(e)}",
-            "metadata": {
-                "analyzed_at": datetime.utcnow().isoformat(),
-                "store": self.store_name
+                "extension_details": None,
+                "analysis_results": None,
+                "summary": f"Error: {str(e)}",
+                "metadata": {
+                    "analyzed_at": datetime.utcnow().isoformat(),
+                    "store": self.store_name
+                }
             }
-        }
         except Exception as e:
             logger.error(f"Analysis failed: {str(e)}")
             return {
-            "extension_details": None,  # Indicate that extension details are missing
-            "analysis_results": None,
-            "summary": f"Unexpected error: {str(e)}",
-            "metadata": {
-                "analyzed_at": datetime.utcnow().isoformat(),
-                "store": self.store_name
+                "extension_details": None,
+                "analysis_results": None,
+                "summary": f"Unexpected error: {str(e)}",
+                "metadata": {
+                    "analyzed_at": datetime.utcnow().isoformat(),
+                    "store": self.store_name
+                }
             }
-        }
 
     async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
         """Get AI summary using OpenAI"""
@@ -238,41 +256,6 @@ class ExtensionAnalyzer:
         except Exception as e:
             logger.error(f"OpenAI API call failed: {str(e)}")
             return "Failed to generate AI summary."
-
-    def _extract_meta(self, soup: BeautifulSoup, property_name: str) -> str:
-        """Extract metadata from store page"""
-        meta = soup.find("meta", {"property": property_name})
-        return meta["content"] if meta else "N/A"
-
-    def _extract_version(self, soup: BeautifulSoup) -> str:
-        """Extract version from store page"""
-        version_elem = soup.find("div", {"class": "N3EXSc"})
-        return version_elem["content"] if version_elem else "N/A"
-
-    def _extract_reviews(self, soup: BeautifulSoup) -> int:
-        """Extract review count from store page"""
-        reviews_elem = soup.find("div", {"class": "PmmSTd"})
-        return int(reviews_elem["content"]) if reviews_elem else 0
-
-    def _extract_rating(self, soup: BeautifulSoup) -> float:
-        """Extract rating from store page"""
-        rating_elem = soup.find("div", {"class": "GlMWqe"})
-        return float(rating_elem["content"]) if rating_elem else 0.0
-
-    def _extract_developer(self, soup: BeautifulSoup) -> str:
-        """Extract developer information from store page"""
-        developer_elem = soup.find("div", {"class": "odyJv"})
-        return developer_elem["content"] if developer_elem else "N/A"
-
-    def _extract_size(self, soup: BeautifulSoup) -> str:
-        """Extract size information from store page"""
-        size_elem = soup.find("div", {"class": "nws2nb"})
-        return size_elem["content"] if size_elem else "N/A"
-
-    def _extract_category(self, soup: BeautifulSoup) -> str:
-        """Extract category information from store page"""
-        category_elem = soup.find("meta", {"itemprop": "category"})
-        return category_elem["content"] if category_elem else "N/A"
 
     async def _download_crx(self) -> str:
         """Download the CRX file and return the local path"""
@@ -319,10 +302,7 @@ class ExtensionAnalyzer:
             conn.commit()
 
 @app.post("/analyze")
-async def analyze_extension(
-    body: dict = Body(...),
-    background_tasks: BackgroundTasks = BackgroundTasks()
-):
+async def analyze_extension(body: dict = Body(...)):
     """
     Analyze a browser extension with AI-powered summary
     """
@@ -342,8 +322,8 @@ async def analyze_extension(
         )
 
     analyzer = ExtensionAnalyzer(extension_id, store_name)
-    result = await analyzer.analyze_extension() # Perform analysis sync
-    return result # return results directly
+    result = await analyzer.analyze_extension()  # Perform analysis synchronously
+    return result  # Return the analysis results directly
 
 if __name__ == "__main__":
     import uvicorn
