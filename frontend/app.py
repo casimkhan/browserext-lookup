@@ -125,7 +125,13 @@ def main():
                     "store_name": store_name.lower()
                 }
                 
+                # Log the request payload
+                logger.info(f"Frontend request payload: {payload}")
+                
                 result = st.session_state.api_client.analyze_extension(payload)
+                
+                # Log the response
+                logger.info(f"Frontend response: {result}")
                 
                 st.success("✅ Analysis complete!")
                 # Check if extension_details is present
