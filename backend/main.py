@@ -246,27 +246,27 @@ class ExtensionAnalyzer:
 
     def _extract_version(self, soup: BeautifulSoup) -> str:
         """Extract version from store page"""
-        version_elem = soup.find("meta", {"itemprop": "version"})
+        version_elem = soup.find("div", {"class": "N3EXSc"})
         return version_elem["content"] if version_elem else "N/A"
 
     def _extract_reviews(self, soup: BeautifulSoup) -> int:
         """Extract review count from store page"""
-        reviews_elem = soup.find("meta", {"itemprop": "ratingCount"})
+        reviews_elem = soup.find("div", {"class": "PmmSTd"})
         return int(reviews_elem["content"]) if reviews_elem else 0
 
     def _extract_rating(self, soup: BeautifulSoup) -> float:
         """Extract rating from store page"""
-        rating_elem = soup.find("meta", {"itemprop": "ratingValue"})
+        rating_elem = soup.find("div", {"class": "GlMWqe"})
         return float(rating_elem["content"]) if rating_elem else 0.0
 
     def _extract_developer(self, soup: BeautifulSoup) -> str:
         """Extract developer information from store page"""
-        developer_elem = soup.find("meta", {"itemprop": "developer"})
+        developer_elem = soup.find("div", {"class": "odyJv"})
         return developer_elem["content"] if developer_elem else "N/A"
 
     def _extract_size(self, soup: BeautifulSoup) -> str:
         """Extract size information from store page"""
-        size_elem = soup.find("meta", {"itemprop": "fileSize"})
+        size_elem = soup.find("div", {"class": "nws2nb"})
         return size_elem["content"] if size_elem else "N/A"
 
     def _extract_category(self, soup: BeautifulSoup) -> str:
