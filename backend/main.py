@@ -2,7 +2,7 @@ import os
 import requests
 import zipfile
 import json
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 import sqlite3
 import re
 from bs4 import BeautifulSoup
@@ -137,8 +137,13 @@ def summarize_with_deepseek(analysis_results: dict):
 
 # API endpoint to analyze CRX file
 @app.post("/analyze")
-async def analyze_crx(extension_id: str, store_name: str):
-    # Fetch extension details from web store
+async def analyze_crx(body: dict = Body(...)):
+    extension_id = body.get("extension_id")
+    store_name = body.get("store_name")
+
+    if not extension_id or not store_name:
+        raise HTTPException(status_code=400, detail="Both 'extension_id' and 'store_name' are required.")
+        
     extension_details = fetch_extension_details(extension_id, store_name)
 
     # Determine CRX URL
