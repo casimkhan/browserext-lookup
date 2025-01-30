@@ -1,9 +1,10 @@
 import os
 import logging
+import json
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime, timedelta
+from datetime import datetime
 import sqlite3
 import requests
 from contextlib import contextmanager
@@ -51,6 +52,7 @@ class DatabaseManager:
                 )
             """)
             conn.commit()
+
 # Initialize Database
 db = DatabaseManager()
 db.initialize()
@@ -69,25 +71,33 @@ class ExtensionAnalyzer:
     
     def _extract_last_updated(self, soup: BeautifulSoup) -> str:
         """Extract last updated date from the store page"""
-        # Example of extracting the last updated date from a meta tag
-        last_updated_elem = soup.find("meta", {"itemprop": "dateModified"})  # You may need to adjust the selector
-        if last_updated_elem:
-            return last_updated_elem["content"]
+        # Try multiple selectors to find the last updated date
+        selectors = [
+            {"meta": {"itemprop": "dateModified"}},
+            {"span": {"class": "last-updated"}},
+            {"div": {"class": "last-updated-date"}}
+        ]
+        
+        for selector in selectors:
+            element = soup.find(**selector)
+            if element:
+                return element.get("content", element.text.strip())
+        
         return "N/A"  # Return "N/A" if not found
 
     async def _get_cached_analysis(self):
-    #"""Retrieve cached analysis result from the database if available."""
-     with self.db.get_connection() as conn:
-        cursor = conn.execute(
-            "SELECT analysis_results FROM extensions WHERE id = ? AND store_name = ?",
-            (self.extension_id, self.store_name)
-        )
-        row = cursor.fetchone()
+        """Retrieve cached analysis result from the database if available."""
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT analysis_results FROM extensions WHERE id = ? AND store_name = ?",
+                (self.extension_id, self.store_name)
+            )
+            row = cursor.fetchone()
 
-        if row:
-            return eval(row["analysis_results"])  # Convert string to dictionary
+            if row:
+                return json.loads(row["analysis_results"])  # Safely convert JSON string to dictionary
 
-     return None
+        return None
     
     async def fetch_store_details(self) -> Dict[str, Any]:
         """Fetch extension details from store"""
@@ -190,10 +200,19 @@ class ExtensionAnalyzer:
             )
             response.raise_for_status()
             
-            return response.json().get("summary", "No summary available.")
+            # Ensure the response contains the expected data
+            summary = response.json().get("summary")
+            if not summary:
+                logger.warning("DeepSeek API returned no summary.")
+                return "No summary available."
             
-        except Exception as e:
+            return summary
+            
+        except requests.exceptions.RequestException as e:
             logger.error(f"DeepSeek API call failed: {str(e)}")
+            return "Failed to generate AI summary."
+        except ValueError as e:
+            logger.error(f"Invalid JSON response from DeepSeek API: {str(e)}")
             return "Failed to generate AI summary."
 
     def _extract_meta(self, soup: BeautifulSoup, property_name: str) -> str:
@@ -203,26 +222,83 @@ class ExtensionAnalyzer:
 
     def _extract_version(self, soup: BeautifulSoup) -> str:
         """Extract version from store page"""
-        # Implementation depends on store HTML structure
         version_elem = soup.find("meta", {"itemprop": "version"})
         return version_elem["content"] if version_elem else "N/A"
 
     def _extract_reviews(self, soup: BeautifulSoup) -> int:
         """Extract review count from store page"""
-        # Implementation depends on store HTML structure
         reviews_elem = soup.find("meta", {"itemprop": "ratingCount"})
         return int(reviews_elem["content"]) if reviews_elem else 0
 
     def _extract_rating(self, soup: BeautifulSoup) -> float:
         """Extract rating from store page"""
-        # Implementation depends on store HTML structure
         rating_elem = soup.find("meta", {"itemprop": "ratingValue"})
         return float(rating_elem["content"]) if rating_elem else 0.0
 
-    # Add other extraction methods as needed...
+    def _extract_developer(self, soup: BeautifulSoup) -> str:
+        """Extract developer information from store page"""
+        developer_elem = soup.find("meta", {"itemprop": "developer"})
+        return developer_elem["content"] if developer_elem else "N/A"
+
+    def _extract_size(self, soup: BeautifulSoup) -> str:
+        """Extract size information from store page"""
+        size_elem = soup.find("meta", {"itemprop": "fileSize"})
+        return size_elem["content"] if size_elem else "N/A"
+
+    def _extract_category(self, soup: BeautifulSoup) -> str:
+        """Extract category information from store page"""
+        category_elem = soup.find("meta", {"itemprop": "category"})
+        return category_elem["content"] if category_elem else "N/A"
+
+    async def _download_crx(self) -> str:
+        """Download the CRX file and return the local path"""
+        # Placeholder implementation
+        crx_path = f"/tmp/{self.extension_id}.crx"
+        logger.info(f"Downloading CRX file to {crx_path}")
+        # Implement actual download logic here
+        return crx_path
+
+    async def _analyze_crx(self, crx_path: str) -> Dict[str, Any]:
+        """Analyze the CRX file and return the results"""
+        # Placeholder implementation
+        logger.info(f"Analyzing CRX file at {crx_path}")
+        return {
+            "permissions": ["storage", "tabs"],
+            "permissions_score": 3.5,
+            "third_party_dependencies": ["example.com"]
+        }
+
+    async def _cache_results(self, result: Dict[str, Any]):
+        """Cache the analysis results in the database"""
+        with self.db.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO extensions (
+                    id, store_name, name, description, version, total_reviews, stars, 
+                    analysis_results, manifest, ai_summary, last_updated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    self.extension_id,
+                    self.store_name,
+                    result["extension_details"]["name"],
+                    result["extension_details"]["description"],
+                    result["extension_details"]["version"],
+                    result["extension_details"]["total_reviews"],
+                    result["extension_details"]["stars"],
+                    json.dumps(result["analysis_results"]),  # Convert dict to JSON string
+                    "N/A",  # Placeholder for manifest
+                    result["summary"],
+                    result["metadata"]["analyzed_at"]
+                )
+            )
+            conn.commit()
 
 @app.post("/analyze")
-async def analyze_extension(body: dict = Body(...)):
+async def analyze_extension(
+    body: dict = Body(...),
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
     """
     Analyze a browser extension with AI-powered summary
     """
@@ -242,9 +318,8 @@ async def analyze_extension(body: dict = Body(...)):
         )
 
     analyzer = ExtensionAnalyzer(extension_id, store_name)
-    return await analyzer.analyze_extension()
-
-# Other endpoints remain the same...
+    background_tasks.add_task(analyzer.analyze_extension)
+    return {"message": "Analysis started in the background."}
 
 if __name__ == "__main__":
     import uvicorn
