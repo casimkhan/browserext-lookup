@@ -131,8 +131,8 @@ async def analyze_crx(body: dict = Body(...)):
     store_name = body.get("store_name")
     crx_url = body.get("crx_url")
 
-    if not extension_id or not store_name or not crx_url:
-        raise HTTPException(status_code=400, detail="Both 'extension_id', 'store_name', and 'crx_url' are required.")
+    if not extension_id or not store_name:
+        raise HTTPException(status_code=400, detail="Both 'extension_id', 'store_name' are required.")
         
     extension_details = fetch_extension_details(extension_id, store_name)
 
