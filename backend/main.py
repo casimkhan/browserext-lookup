@@ -4,9 +4,7 @@ import zipfile
 import json
 from fastapi import FastAPI, HTTPException, Body
 import sqlite3
-import re
 from bs4 import BeautifulSoup
-import hashlib
 
 app = FastAPI()
 
@@ -15,8 +13,6 @@ DEEPSEEK_API_URL = "https://api.deepseek.com/v1/summarize"
 
 # User-Agent and browser versions
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-CHROME_VERSION = "131.0.6778.265"
-EDGE_VERSION = "130.0.2849.142"
 
 # Database setup
 def setup_database():
@@ -32,47 +28,22 @@ def setup_database():
     conn.commit()
     return conn
 
-# Get Chrome extension download URL
-def get_chrome_extension_url(extension_id: str) -> str:
-    return f"https://clients2.google.com/service/update2/crx?response=redirect&os=mac&arch=arm64&os_arch=arm64&nacl_arch=arm&prod=chromecrx&prodversion={CHROME_VERSION}&lang=en-US&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
-
-# Get Edge extension download URL
-def get_edge_extension_url(extension_id: str) -> str:
-    return f"https://edge.microsoft.com/extensionwebstorebase/v1/crx?response=redirect&os=linux&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromiumcrx&prodchannel=dev&prodversion={EDGE_VERSION}&lang=en-US&acceptformat=crx3&x=id%3D{extension_id}%26installsource%3Dondemand%26uc"
-
-# Download CRX file
-def download_extension(url: str, output_path: str) -> None:
-    response = requests.get(url, allow_redirects=True, headers={"User-Agent": USER_AGENT})
-    response.raise_for_status()
-    
-    with open(output_path, "wb") as f:
-        f.write(response.content)
-# Check CRX file
-def is_valid_crx_file(file_path: str) -> bool:
+# Analyze CRX file directly
+def analyze_crx_file(file_path: str):
+    # Check if the file is a valid CRX file
     try:
         with open(file_path, 'rb') as f:
-            # Check the first 4 bytes to see if it starts with 'CRX' (header)
             header = f.read(4)
             if header != b'Cr24':  # For CRX v3+ format
-                return False
-        # You can also check if it's a valid zip file (CRX is essentially a zip file)
-        with zipfile.ZipFile(file_path, 'r') as zip_ref:
-            # Try extracting the contents, if it succeeds, it's a valid zip (CRX)
-            zip_ref.testzip()
-        return True
-    except Exception as e:
-        return False
+                raise HTTPException(status_code=400, detail="Not a valid CRX file.")
         
-# Validate file extension
-def validate_crx_extension(file_path: str) -> bool:
-    return file_path.lower().endswith(".crx")
+        # Validate zip structure (CRX is essentially a zip file)
+        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+            zip_ref.testzip()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"File validation failed: {str(e)}")
 
-# Analyze CRX file
-def analyze_crx_file(file_path: str):
-    # Ensure the file is a valid CRX (ZIP) file
-    if not is_valid_crx_file(file_path):
-        raise HTTPException(status_code=400, detail="Downloaded file is not a valid CRX file.")
-
+    # Extract the manifest and analyze
     extract_dir = "extracted_crx"
     try:
         with zipfile.ZipFile(file_path, 'r') as zip_ref:
@@ -127,34 +98,22 @@ def detect_third_party_dependencies(code: str) -> list:
 
 # Fetch extension details from Chrome/Edge Web Store
 def fetch_extension_details(extension_id: str, store_name: str):
-    if store_name.lower() == "chrome":
-        store_url = f"https://chrome.google.com/webstore/detail/{extension_id}"
-    elif store_name.lower() == "edge":
-        store_url = f"https://microsoftedge.microsoft.com/addons/detail/{extension_id}"
-    else:
-        raise HTTPException(status_code=400, detail="Invalid store name. Must be 'chrome' or 'edge'.")
+    store_url = f"https://chrome.google.com/webstore/detail/{extension_id}" if store_name.lower() == "chrome" else f"https://microsoftedge.microsoft.com/addons/detail/{extension_id}"
 
     try:
         response = requests.get(store_url, headers={"User-Agent": USER_AGENT})
         response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
-
-        # Extract metadata
         name = soup.find("meta", {"property": "og:title"})["content"] if soup.find("meta", {"property": "og:title"}) else "N/A"
         description = soup.find("meta", {"property": "og:description"})["content"] if soup.find("meta", {"property": "og:description"}) else "N/A"
         
-        # Extract additional details (version, reviews, stars - can improve based on store structure)
-        version = "N/A"  
-        total_reviews = "N/A"
-        stars = "N/A"
-
         return {
             "name": name,
             "description": description,
-            "version": version,
-            "total_reviews": total_reviews,
-            "stars": stars
+            "version": "N/A",  # Can be scraped if needed
+            "total_reviews": "N/A",  # Can be scraped if needed
+            "stars": "N/A"  # Can be scraped if needed
         }
 
     except requests.exceptions.RequestException as e:
@@ -170,23 +129,20 @@ def summarize_with_deepseek(analysis_results: dict):
 async def analyze_crx(body: dict = Body(...)):
     extension_id = body.get("extension_id")
     store_name = body.get("store_name")
+    crx_url = body.get("crx_url")
 
-    if not extension_id or not store_name:
-        raise HTTPException(status_code=400, detail="Both 'extension_id' and 'store_name' are required.")
+    if not extension_id or not store_name or not crx_url:
+        raise HTTPException(status_code=400, detail="Both 'extension_id', 'store_name', and 'crx_url' are required.")
         
     extension_details = fetch_extension_details(extension_id, store_name)
 
-    # Determine CRX URL
-    if store_name.lower() == "chrome":
-        crx_url = get_chrome_extension_url(extension_id)
-    elif store_name.lower() == "edge":
-        crx_url = get_edge_extension_url(extension_id)
-    else:
-        raise HTTPException(status_code=400, detail="Invalid store name. Must be 'chrome' or 'edge'.")
-
-    file_path = f"temp_{extension_id}.crx"
+    # Download CRX file
     try:
-        download_extension(crx_url, file_path)
+        response = requests.get(crx_url, allow_redirects=True, headers={"User-Agent": USER_AGENT})
+        response.raise_for_status()
+        file_path = f"temp_{extension_id}.crx"
+        with open(file_path, "wb") as f:
+            f.write(response.content)
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"Error downloading extension: {str(e)}")
 
