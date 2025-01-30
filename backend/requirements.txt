@@ -4,3 +4,4 @@ requests
 sqlite-utils
 python-multipart
 beautifulsoup4
+openai
