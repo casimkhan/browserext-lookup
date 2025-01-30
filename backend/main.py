@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Body
 import sqlite3
 import re
 from bs4 import BeautifulSoup
+import hashlib
 
 app = FastAPI()
 
@@ -47,13 +48,23 @@ def download_extension(url: str, output_path: str) -> None:
     with open(output_path, "wb") as f:
         f.write(response.content)
 
+# Validate file extension
+def validate_crx_extension(file_path: str) -> bool:
+    return file_path.lower().endswith(".crx")
+
 # Analyze CRX file
 def analyze_crx_file(file_path: str):
+    if not validate_crx_extension(file_path):
+        raise HTTPException(status_code=400, detail="Invalid file extension. Expected .crx file.")
+
     extract_dir = "extracted_crx"
     with zipfile.ZipFile(file_path, 'r') as zip_ref:
         zip_ref.extractall(extract_dir)
 
     manifest_path = os.path.join(extract_dir, "manifest.json")
+    if not os.path.exists(manifest_path):
+        raise HTTPException(status_code=400, detail="Manifest file not found in CRX.")
+
     with open(manifest_path, 'r') as f:
         manifest = json.load(f)
 
