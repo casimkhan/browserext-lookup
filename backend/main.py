@@ -165,6 +165,8 @@ class ExtensionAnalyzer:
                     "store": self.store_name
                 }
             }
+            # Log the response
+            logger.info(f"Backend response: {result}")
             
             # Cache results
             await self._cache_results(result)
