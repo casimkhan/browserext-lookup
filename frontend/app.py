@@ -128,10 +128,13 @@ def main():
                 result = st.session_state.api_client.analyze_extension(payload)
                 
                 st.success("✅ Analysis complete!")
-                
-                display_extension_details(result)
-                display_security_analysis(result)
-                
+                # Check if extension_details is present
+                if result.get("extension_details"):
+                    display_extension_details(result)
+                    display_security_analysis(result)
+                else:
+                    st.error("⚠️ Extension details not found in the response.")
+                #Display AI Generated Summary
                 st.subheader("📢 Security Summary")
                 st.info(result.get("summary", "No summary provided."))
                 
