@@ -65,7 +65,7 @@ class ExtensionAnalyzer:
         self.db = DatabaseManager()
     
     async def _get_cached_analysis(self):
-    """Retrieve cached analysis result from the database if available."""
+    #"""Retrieve cached analysis result from the database if available."""
      with self.db.get_connection() as conn:
         cursor = conn.execute(
             "SELECT analysis_results FROM extensions WHERE id = ? AND store_name = ?",
