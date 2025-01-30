@@ -54,12 +54,16 @@ def validate_crx_extension(file_path: str) -> bool:
 
 # Analyze CRX file
 def analyze_crx_file(file_path: str):
-    if not validate_crx_extension(file_path):
-        raise HTTPException(status_code=400, detail="Invalid file extension. Expected .crx file.")
+    # Ensure the file is a valid CRX (ZIP) file
+    if not is_valid_crx_file(file_path):
+        raise HTTPException(status_code=400, detail="Downloaded file is not a valid CRX file.")
 
     extract_dir = "extracted_crx"
-    with zipfile.ZipFile(file_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_dir)
+    try:
+        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_dir)
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="The downloaded file is not a valid ZIP (CRX) file.")
 
     manifest_path = os.path.join(extract_dir, "manifest.json")
     if not os.path.exists(manifest_path):
