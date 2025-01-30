@@ -16,6 +16,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize Database
+db = DatabaseManager()
+db.initialize()
+
 app = FastAPI(
     title="Browser Extension Analyzer",
     description="API for analyzing browser extensions with DeepSeek AI integration",
