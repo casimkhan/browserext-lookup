@@ -66,7 +66,7 @@ class ExtensionAnalyzer:
     
     async def _get_cached_analysis(self):
     """Retrieve cached analysis result from the database if available."""
-    with self.db.get_connection() as conn:
+     with self.db.get_connection() as conn:
         cursor = conn.execute(
             "SELECT analysis_results FROM extensions WHERE id = ? AND store_name = ?",
             (self.extension_id, self.store_name)
@@ -76,7 +76,7 @@ class ExtensionAnalyzer:
         if row:
             return eval(row["analysis_results"])  # Convert string to dictionary
 
-    return None
+     return None
     
     async def fetch_store_details(self) -> Dict[str, Any]:
         """Fetch extension details from store"""
