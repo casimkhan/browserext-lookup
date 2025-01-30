@@ -16,16 +16,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize Database
-db = DatabaseManager()
-db.initialize()
-
-app = FastAPI(
-    title="Browser Extension Analyzer",
-    description="API for analyzing browser extensions with DeepSeek AI integration",
-    version="2.0.0"
-)
-
 # Constants
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/summarize"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -61,6 +51,15 @@ class DatabaseManager:
                 )
             """)
             conn.commit()
+# Initialize Database
+db = DatabaseManager()
+db.initialize()
+
+app = FastAPI(
+    title="Browser Extension Analyzer",
+    description="API for analyzing browser extensions with DeepSeek AI integration",
+    version="2.0.0"
+)
 
 class ExtensionAnalyzer:
     def __init__(self, extension_id: str, store_name: str):
