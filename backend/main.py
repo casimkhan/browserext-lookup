@@ -129,13 +129,10 @@ def summarize_with_deepseek(analysis_results: dict):
 async def analyze_crx(body: dict = Body(...)):
     extension_id = body.get("extension_id")
     store_name = body.get("store_name")
-    crx_url = body.get("crx_url")
 
     if not extension_id or not store_name:
         raise HTTPException(status_code=400, detail="Both 'extension_id', 'store_name' are required.")
         
-    extension_details = fetch_extension_details(extension_id, store_name)
-
     # Download CRX file
     try:
         response = requests.get(crx_url, allow_redirects=True, headers={"User-Agent": USER_AGENT})
