@@ -67,6 +67,14 @@ class ExtensionAnalyzer:
         self.store_name = store_name.lower()
         self.db = DatabaseManager()
     
+    def _extract_last_updated(self, soup: BeautifulSoup) -> str:
+    """Extract last updated date from the store page"""
+    # Example of extracting the last updated date from a meta tag
+    last_updated_elem = soup.find("meta", {"itemprop": "dateModified"})  # You may need to adjust the selector
+        if last_updated_elem:
+            return last_updated_elem["content"]
+        return "N/A"  # Return "N/A" if not found
+
     async def _get_cached_analysis(self):
     #"""Retrieve cached analysis result from the database if available."""
      with self.db.get_connection() as conn:
