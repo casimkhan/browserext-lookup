@@ -47,7 +47,22 @@ def download_extension(url: str, output_path: str) -> None:
     
     with open(output_path, "wb") as f:
         f.write(response.content)
-
+# Check CRX file
+def is_valid_crx_file(file_path: str) -> bool:
+    try:
+        with open(file_path, 'rb') as f:
+            # Check the first 4 bytes to see if it starts with 'CRX' (header)
+            header = f.read(4)
+            if header != b'Cr24':  # For CRX v3+ format
+                return False
+        # You can also check if it's a valid zip file (CRX is essentially a zip file)
+        with zipfile.ZipFile(file_path, 'r') as zip_ref:
+            # Try extracting the contents, if it succeeds, it's a valid zip (CRX)
+            zip_ref.testzip()
+        return True
+    except Exception as e:
+        return False
+        
 # Validate file extension
 def validate_crx_extension(file_path: str) -> bool:
     return file_path.lower().endswith(".crx")
