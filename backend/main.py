@@ -9,6 +9,7 @@ import sqlite3
 import requests
 from contextlib import contextmanager
 from bs4 import BeautifulSoup
+from openai import OpenAI  # Import OpenAI
 
 # Configure logging
 logging.basicConfig(
@@ -17,8 +18,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 # Constants
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/summarize"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 class DatabaseManager:
@@ -59,7 +62,7 @@ db.initialize()
 
 app = FastAPI(
     title="Browser Extension Analyzer",
-    description="API for analyzing browser extensions with DeepSeek AI integration",
+    description="API for analyzing browser extensions with OpenAI integration",
     version="2.0.0"
 )
 
@@ -146,8 +149,8 @@ class ExtensionAnalyzer:
             crx_path = await self._download_crx()
             analysis_results = await self._analyze_crx(crx_path)
             
-            # Get AI summary from DeepSeek
-            ai_summary = await self._get_deepseek_summary({
+            # Get AI summary from OpenAI
+            ai_summary = await self._get_openai_summary({
                 "store_details": store_details,
                 "analysis_results": analysis_results
             })
@@ -176,10 +179,10 @@ class ExtensionAnalyzer:
             logger.error(f"Analysis failed: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def _get_deepseek_summary(self, data: Dict[str, Any]) -> str:
-        """Get AI summary from DeepSeek API"""
+    async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
+        """Get AI summary using OpenAI"""
         try:
-            # Prepare the input text for DeepSeek
+            # Prepare the input text for OpenAI
             analysis_text = (
                 f"Extension Name: {data['store_details']['name']}\n"
                 f"Description: {data['store_details']['description']}\n"
@@ -192,27 +195,27 @@ class ExtensionAnalyzer:
                 f"- Third-party domains: {', '.join(data['analysis_results']['third_party_dependencies'])}\n"
             )
             
-            # Call DeepSeek API
-            response = requests.post(
-                DEEPSEEK_API_URL,
-                json={"text": analysis_text},
-                headers={"Content-Type": "application/json"}
+            # Call OpenAI API
+            response = client.chat.completions.create(
+                model="gpt-4",  # Use the appropriate model
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that summarizes browser extension details and security analysis."},
+                    {"role": "user", "content": f"Summarize the following browser extension details and security analysis:\n\n{analysis_text}"}
+                ],
+                max_tokens=300,  # Adjust based on your needs
+                temperature=0.7  # Adjust for creativity vs. precision
             )
-            response.raise_for_status()
             
-            # Ensure the response contains the expected data
-            summary = response.json().get("summary")
+            # Extract the summary from the response
+            summary = response.choices[0].message.content
             if not summary:
-                logger.warning("DeepSeek API returned no summary.")
+                logger.warning("OpenAI returned no summary.")
                 return "No summary available."
             
             return summary
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"DeepSeek API call failed: {str(e)}")
-            return "Failed to generate AI summary."
-        except ValueError as e:
-            logger.error(f"Invalid JSON response from DeepSeek API: {str(e)}")
+        except Exception as e:
+            logger.error(f"OpenAI API call failed: {str(e)}")
             return "Failed to generate AI summary."
 
     def _extract_meta(self, soup: BeautifulSoup, property_name: str) -> str:
