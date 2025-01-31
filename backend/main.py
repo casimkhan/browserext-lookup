@@ -105,19 +105,9 @@ class ExtensionAnalyzer:
     async def _get_openai_extracted_details(self, html_content: str) -> Dict[str, Any]:
         """Extract extension details using OpenAI"""
         try:
-            # Parse the HTML content with BeautifulSoup
-            soup = BeautifulSoup(html_content, "html.parser")
-
-            # Extract relevant sections of the page
-            title = soup.find("h1", {"class": "Pa2dE"})  # Example class for title
-            description = soup.find("div", {"class": "JJ3H1e jVwmLb"})  # Example class for description
-            version = soup.find("div", {"class": "v7vKf"})  # Example class for version
-            reviews = soup.find("div", {"class": "p9xg1 Yemige"})  # Example class for reviews
-            rating = soup.find("div", {"class": "PmmSTd"})  # Example class for rating
-
             # Prepare the input text for OpenAI
             prompt = (
-                f"Extract the following details from the provided HTML snippets:\n"
+                f"Extract the following details from the provided Chrome Web Store page HTML content:\n"
                 f"- Name\n"
                 f"- Description\n"
                 f"- Version\n"
@@ -127,19 +117,15 @@ class ExtensionAnalyzer:
                 f"- Developer\n"
                 f"- Size\n"
                 f"- Category\n\n"
-                f"HTML Snippets:\n"
-                f"Title: {title.text if title else 'N/A'}\n"
-                f"Description: {description.text if description else 'N/A'}\n"
-                f"Version: {version.text if version else 'N/A'}\n"
-                f"Reviews: {reviews.text if reviews else 'N/A'}\n"
-                f"Rating: {rating.text if rating else 'N/A'}\n"
+                f"Return the details in JSON format.\n\n"
+                f"HTML Content:\n{html_content}"
             )
             
             # Call OpenAI API with gpt-3.5-turbo
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",  # Use gpt-3.5-turbo
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that extracts structured data from HTML snippets."},
+                    {"role": "system", "content": "You are a helpful assistant that extracts structured data from HTML content."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=500,  # Adjust based on your needs
