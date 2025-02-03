@@ -233,7 +233,21 @@ class ExtensionAnalyzer:
     async def _analyze_crx(self, crx_file: io.BytesIO) -> Dict[str, Any]:
         """Analyze the CRX file and return the results"""
         try:
-            with zipfile.ZipFile(crx_file) as zf:
+            # Read the entire CRX file
+            crx_data = crx_file.read()
+            # Check if the file has the CRX header ("Cr24")
+            if crx_data[:4] == b'Cr24':
+                # Extract header details
+                version = int.from_bytes(crx_data[4:8], 'little')
+                public_key_len = int.from_bytes(crx_data[8:12], 'little')
+                signature_len = int.from_bytes(crx_data[12:16], 'little')
+                zip_start = 16 + public_key_len + signature_len
+                zip_data = crx_data[zip_start:]
+            else:
+                zip_data = crx_data
+
+            zip_io = io.BytesIO(zip_data)
+            with zipfile.ZipFile(zip_io) as zf:
                 manifest_data = zf.read('manifest.json').decode('utf-8')
                 manifest = json.loads(manifest_data)
 
@@ -279,7 +293,6 @@ class ExtensionAnalyzer:
             conn.commit()
 
     # --- Newly added methods to fix missing attribute errors ---
-
     async def fetch_store_details(self) -> Dict[str, Any]:
         """
         Stub method for fetching store details.
