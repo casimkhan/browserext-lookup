@@ -12,7 +12,7 @@ from openai import OpenAI
 import re
 import zipfile
 import io
-import hashlib  # For calculating file hash
+import hashlib
 
 # Configure logging
 logging.basicConfig(
@@ -26,6 +26,8 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Constants
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+CHROME_VERSION = "120.0.0.0"  # Match the user agent version
+NACL_ARCH = "x86-64"  # Determine based on your target architecture
 
 class DatabaseManager:
     def __init__(self):
@@ -216,44 +218,69 @@ class ExtensionAnalyzer:
             }
 
     async def _download_crx(self) -> tuple[str, int, str]:
-        """Download the CRX file, rename to ZIP, and return the local path, size, and hash"""
-        crx_url = (
-            f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1&acceptformat=crx2,crx3&x=id={self.extension_id}&uc"
-            if self.store_name == "chrome"
-            else f"https://edge.microsoft.com/extensionwebstorebase/v1/crx?id={self.extension_id}"
-        )
-        
-        try:
-            response = requests.get(crx_url, stream=True, headers={"User-Agent": USER_AGENT})
-            response.raise_for_status()
-            crx_path = f"/tmp/{self.extension_id}.crx"
-            with open(crx_path, 'wb') as out_file:
-                for chunk in response.iter_content(chunk_size=8192):
-                    out_file.write(chunk)
-            
-            # Calculate file size and hash
-            file_size = os.path.getsize(crx_path)
-            file_hash = self._calculate_file_hash(crx_path)
+        """Download the CRX file with proper parameters and return path, size, hash"""
+        if self.store_name == "chrome":
+            url = (
+                f"https://clients2.google.com/service/update2/crx?"
+                f"response=redirect&"
+                f"prodversion={CHROME_VERSION}&"
+                f"x=id%3D{self.extension_id}%26installsource%3Dondemand%26uc&"
+                f"nacl_arch={NACL_ARCH}&"
+                f"acceptformat=crx2,crx3"
+            )
+        else:  # Edge
+            url = (
+                f"https://edge.microsoft.com/extensionwebstorebase/v1/crx?"
+                f"response=redirect&"
+                f"prod=chromiumcrx&"
+                f"prodchannel=&"
+                f"x=id%3D{self.extension_id}%26installsource%3Dondemand%26uc"
+            )
 
-            # Rename .crx to .zip
-            zip_path = crx_path.replace('.crx', '.zip')
-            os.rename(crx_path, zip_path)
-            logger.info(f"CRX file downloaded and renamed to {zip_path}")
+        try:
+            response = requests.get(url, stream=True, headers={"User-Agent": USER_AGENT})
+            response.raise_for_status()
+            
+            # Save directly as zip after processing CRX headers
+            zip_path = f"/tmp/{self.extension_id}.zip"
+            crx_data = response.content
+            
+            # Process CRX headers to get actual zip data
+            zip_data = self._process_crx_headers(crx_data)
+            
+            with open(zip_path, 'wb') as f:
+                f.write(zip_data)
+
+            # Calculate verification metrics
+            file_size = len(zip_data)
+            file_hash = hashlib.sha256(zip_data).hexdigest()
+
+            logger.info(f"CRX processed to ZIP: {zip_path} ({file_size} bytes)")
             return zip_path, file_size, file_hash
+
         except requests.RequestException as e:
-            logger.error(f"Failed to download CRX file: {str(e)}")
+            logger.error(f"Download failed: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to download CRX file")
 
-    def _calculate_file_hash(self, file_path: str) -> str:
-        """Calculate SHA-256 hash of a file"""
-        sha256_hash = hashlib.sha256()
-        with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(chunk)
-        return sha256_hash.hexdigest()
+    def _process_crx_headers(self, crx_data: bytes) -> bytes:
+        """Process CRX file headers to extract actual ZIP content"""
+        try:
+            # Check for CRX3 format (magic number 'Cr24')
+            if crx_data.startswith(b'Cr24'):
+                # CRX3 format parsing
+                version = int.from_bytes(crx_data[4:8], byteorder='little')
+                header_length = int.from_bytes(crx_data[8:12], byteorder='little')
+                zip_start = 12 + header_length + 32  # Skip header and SHA256
+                return crx_data[zip_start:]
+            else:
+                # CRX2 format - skip first 16 bytes
+                return crx_data[16:]
+        except Exception as e:
+            logger.error(f"CRX header processing failed: {str(e)}")
+            raise HTTPException(status_code=500, detail="Invalid CRX file format")
 
     async def _analyze_crx(self, zip_path: str) -> Dict[str, Any]:
-        """Analyze the ZIP file (formerly CRX) and return the results including manifest.json content"""
+        """Analyze the processed ZIP file"""
         analysis_results = {
             "permissions": [],
             "permissions_score": 0.0,
@@ -262,27 +289,28 @@ class ExtensionAnalyzer:
         }
 
         try:
-            # Open the renamed .zip file and extract its contents
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 if 'manifest.json' in zip_ref.namelist():
                     with zip_ref.open('manifest.json') as manifest_file:
                         manifest_content = manifest_file.read()
                         try:
                             analysis_results['manifest'] = json.loads(manifest_content)
-                            if 'permissions' in analysis_results['manifest']:
-                                analysis_results['permissions'] = analysis_results['manifest']['permissions']
+                            analysis_results['permissions'] = analysis_results['manifest'].get('permissions', [])
                         except json.JSONDecodeError:
                             logger.warning("Failed to parse manifest.json")
                 else:
-                    logger.warning("No manifest.json found in CRX file")
+                    logger.warning("No manifest.json found in extension")
 
-            # Calculate security scores
-            analysis_results['permissions_score'] = self._calculate_permission_score(analysis_results['permissions'])
-            
+            analysis_results['permissions_score'] = self._calculate_permission_score(
+                analysis_results['permissions']
+            )
+
         except zipfile.BadZipFile:
-            logger.error("The file is not a valid ZIP archive")
+            logger.error("Invalid ZIP archive after CRX processing")
+            raise HTTPException(status_code=500, detail="Invalid extension package")
         except Exception as e:
-            logger.error(f"Error analyzing CRX file: {str(e)}")
+            logger.error(f"Analysis failed: {str(e)}")
+            raise HTTPException(status_code=500, detail="Extension analysis failed")
 
         return analysis_results
 
