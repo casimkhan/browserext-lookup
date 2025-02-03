@@ -63,31 +63,51 @@ def display_extension_details(result: Dict[str, Any]):
     """Display extension details in a structured format."""
     with st.container():
         st.subheader("🛠️ Extension Details")
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.metric("Name", result['extension_details'].get('name', 'N/A'))
-            st.metric("Version", result['extension_details'].get('version', 'N/A'))
-            st.metric("Total Reviews", result['extension_details'].get('total_reviews', 'N/A'))
+            st.metric("Developer", result['extension_details'].get('developer', 'N/A'))
         
         with col2:
-            st.metric("Stars", f"{result['extension_details'].get('stars', 'N/A')} ⭐")
-            st.metric("Permissions Score", result['analysis_results'].get('permissions_score', 'N/A'))
+            st.metric("Version", result['extension_details'].get('version', 'N/A'))
+            st.metric("Last Updated", result['extension_details'].get('last_updated', 'N/A'))
+            
+        with col3:
+            st.metric("Total Reviews", result['extension_details'].get('total_reviews', 'N/A'))
+            st.metric("Rating", f"{result['extension_details'].get('stars', 0.0)} ⭐")
 
 def display_security_analysis(result: Dict[str, Any]):
     """Display security analysis results."""
     with st.expander("🔍 Security Analysis", expanded=True):
-        st.write("**Detected Scripts:**")
-        if scripts := result['analysis_results'].get('scripts', []):
-            st.json(scripts)
+        # Display Manifest Content
+        st.write("**📜 Manifest Content:**")
+        if manifest := result['analysis_results'].get('manifest_content'):
+            st.json(manifest)
         else:
-            st.info("No scripts detected")
-            
-        st.write("**Third-Party Dependencies:**")
+            st.info("No manifest content available")
+
+        # Display Risk Score Breakdown
+        st.write("**🛡️ Risk Analysis:**")
+        risk_score = result['analysis_results'].get('permissions_score', 0)
+        st.metric("Security Risk Score", f"{risk_score}/5.0", 
+                help="Score based on permissions and sensitive API usage (higher = more risky)")
+
+        # Display Third-Party Dependencies
+        st.write("**🌐 Third-Party Dependencies:**")
         if deps := result['analysis_results'].get('third_party_dependencies', []):
-            st.json(deps)
+            for dep in deps:
+                st.write(f"- `{dep}`")
         else:
-            st.info("No third-party dependencies detected")
+            st.info("No third-party domains detected")
+
+        # Display Permissions Analysis
+        st.write("**🔑 Required Permissions:**")
+        if perms := result['analysis_results'].get('permissions', []):
+            for perm in perms:
+                st.write(f"- `{perm}`")
+        else:
+            st.info("No special permissions required")
 
 def main():
     st.set_page_config(
@@ -95,6 +115,15 @@ def main():
         page_icon="🔍",
         layout="wide"
     )
+    
+    # Custom CSS styling
+    st.markdown("""
+    <style>
+        .metric {border: 1px solid #2e5266; border-radius: 5px; padding: 10px;}
+        .stJson {max-height: 300px; overflow-y: auto; border: 1px solid #2e5266;}
+        .st-bq {border-color: #2e5266;}
+    </style>
+    """, unsafe_allow_html=True)
     
     st.title("🔍 BrowserExt Lookup")
     st.write("Analyze browser extensions using their ID.")
@@ -134,13 +163,14 @@ def main():
                 logger.info(f"Frontend response: {result}")
                 
                 st.success("✅ Analysis complete!")
-                # Check if extension_details is present
+                
                 if result.get("extension_details"):
                     display_extension_details(result)
                     display_security_analysis(result)
                 else:
                     st.error("⚠️ Extension details not found in the response.")
-                #Display AI Generated Summary
+                
+                # Display AI Generated Summary
                 st.subheader("📢 Security Summary")
                 st.info(result.get("summary", "No summary provided."))
                 
