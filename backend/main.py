@@ -9,6 +9,7 @@ import requests
 from contextlib import contextmanager
 from bs4 import BeautifulSoup
 from openai import OpenAI  # Import OpenAI
+import re
 
 # Configure logging
 logging.basicConfig(
@@ -86,7 +87,7 @@ class ExtensionAnalyzer:
         return None
 
     async def fetch_store_details(self) -> Dict[str, Any]:
-        """Fetch extension details from store"""
+        """Fetch extension details from store using web crawling"""
         store_url = (
             f"https://chrome.google.com/webstore/detail/{self.extension_id}" 
             if self.store_name == "chrome" 
@@ -96,76 +97,47 @@ class ExtensionAnalyzer:
         try:
             response = requests.get(store_url, headers={"User-Agent": USER_AGENT})
             response.raise_for_status()
-            html_content = response.text  # Get the raw HTML content
-            return await self._get_openai_extracted_details(html_content)  # Use OpenAI to extract details
+            html_content = response.text
+            return self._crawl_html_details(html_content)
         except Exception as e:
             logger.error(f"Failed to fetch store details: {str(e)}")
             raise HTTPException(status_code=404, detail="Extension not found in store")
 
-    async def _get_openai_extracted_details(self, html_content: str) -> Dict[str, Any]:
-        """Extract extension details using OpenAI"""
-        try:
-            # Parse the HTML content with BeautifulSoup
-            soup = BeautifulSoup(html_content, "html.parser")
-            # Extract relevant sections of the page
-            title = soup.find("h1", {"class": "Pa2dE"})  # Example class for title
-            description = soup.find("div", {"class": "JJ3H1e jVwmLb"})  # Example class for description
-            version = soup.find("div", {"class": "v7vKf"})  # Example class for version
-            reviews = soup.find("div", {"class": "p9xg1 Yemige"})  # Example class for reviews
-            rating = soup.find("div", {"class": "PmmSTd"})  # Example class for rating
-            # Prepare the input text for OpenAI
-            prompt = (
-                f"Extract the following details from the provided HTML snippets:\n"
-                f"Extract the following details from the provided Chrome Web Store page HTML content:\n"
-                f"- Name\n"
-                f"- Description\n"
-                f"- Version\n"
-                f"- Total Reviews\n"
-                f"- Stars (rating)\n"
-                f"- Last Updated\n"
-                f"- Developer\n"
-                f"- Size\n"
-                f"- Category\n\n"
-                f"HTML Snippets:\n"
-                f"Title: {title.text if title else 'N/A'}\n"
-                f"Description: {description.text if description else 'N/A'}\n"
-                f"Version: {version.text if version else 'N/A'}\n"
-                f"Reviews: {reviews.text if reviews else 'N/A'}\n"
-                f"Rating: {rating.text if rating else 'N/A'}\n"
-                f"Return the details in JSON format.\n\n"
-                f"HTML Content:\n{html_content}"
-            )
+    def _crawl_html_details(self, html_content: str) -> Dict[str, Any]:
+        """Crawl the HTML to extract specific details."""
+        soup = BeautifulSoup(html_content, 'html.parser')
+        details = {}
 
-            # Call OpenAI API with gpt-3.5-turbo
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Use gpt-3.5-turbo
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that extracts structured data from HTML snippets."},
-                    {"role": "system", "content": "You are a helpful assistant that extracts structured data from HTML content."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=500,  # Adjust based on your needs
-                temperature=0.3  # Lower temperature for more precise responses
-            )
+        # Extract details using class names or patterns
+        details['name'] = self._extract_text(soup, 'h1', class_='Pa2dE') or 'N/A'
+        details['description'] = self._extract_text(soup, 'div', class_='JJ3H1e jVwmLb') or 'N/A'
+        details['version'] = self._extract_text(soup, 'div', class_='v7vKf') or 'N/A'
+        details['total_reviews'] = self._extract_number(soup, 'div', class_='p9xg1 Yemige') or 0
+        details['stars'] = self._extract_rating(soup, 'div', class_='PmmSTd') or 0.0
+        details['last_updated'] = self._extract_text(soup, 'div', class_='h-CkGe') or 'N/A'  # Example for Chrome
+        details['developer'] = self._extract_text(soup, 'span', class_='e-f-ih') or 'N/A'  # Example for Chrome
+        details['size'] = 'N/A'  # Size might not be directly available
+        details['category'] = self._extract_text(soup, 'div', class_='Cj b') or 'N/A'  # Example for Chrome
 
-            # Extract the JSON response from OpenAI
-            json_response = response.choices[0].message.content
-            details = json.loads(json_response)  # Parse the JSON response
-            return details
+        return details
 
-        except Exception as e:
-            logger.error(f"OpenAI API call failed: {str(e)}")
-            return {
-                "name": "N/A",
-                "description": "N/A",
-                "version": "N/A",
-                "total_reviews": 0,
-                "stars": 0.0,
-                "last_updated": "N/A",
-                "developer": "N/A",
-                "size": "N/A",
-                "category": "N/A"
-            }
+    def _extract_text(self, soup, tag, **kwargs):
+        element = soup.find(tag, **kwargs)
+        return element.text.strip() if element else None
+
+    def _extract_number(self, soup, tag, **kwargs):
+        text = self._extract_text(soup, tag, **kwargs)
+        if text:
+            match = re.search(r'\d+', text)
+            return int(match.group()) if match else 0
+        return 0
+
+    def _extract_rating(self, soup, tag, **kwargs):
+        text = self._extract_text(soup, tag, **kwargs)
+        if text:
+            match = re.search(r'(\d+(\.\d+)?)', text)
+            return float(match.group()) if match else 0.0
+        return 0.0
 
     async def analyze_extension(self) -> Dict[str, Any]:
         """Complete extension analysis workflow"""
@@ -175,14 +147,14 @@ class ExtensionAnalyzer:
             if cached:
                 return cached
 
-            # Fetch store details using OpenAI
+            # Fetch store details using web crawler
             store_details = await self.fetch_store_details()
 
             # Download and analyze CRX
             crx_path = await self._download_crx()
             analysis_results = await self._analyze_crx(crx_path)
 
-            # Get AI summary from OpenAI
+            # Get AI summary from OpenAI based on crawled data
             ai_summary = await self._get_openai_summary({
                 "store_details": store_details,
                 "analysis_results": analysis_results
@@ -234,6 +206,24 @@ class ExtensionAnalyzer:
                 }
             }
 
+    async def _download_crx(self) -> str:
+        """Download the CRX file and return the local path"""
+        # Placeholder implementation
+        crx_path = f"/tmp/{self.extension_id}.crx"
+        logger.info(f"Downloading CRX file to {crx_path}")
+        # Implement actual download logic here
+        return crx_path
+
+    async def _analyze_crx(self, crx_path: str) -> Dict[str, Any]:
+        """Analyze the CRX file and return the results"""
+        # Placeholder implementation
+        logger.info(f"Analyzing CRX file at {crx_path}")
+        return {
+            "permissions": ["storage", "tabs"],
+            "permissions_score": 3.5,
+            "third_party_dependencies": ["example.com"]
+        }
+
     async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
         """Get AI summary using OpenAI"""
         try:
@@ -272,24 +262,6 @@ class ExtensionAnalyzer:
         except Exception as e:
             logger.error(f"OpenAI API call failed: {str(e)}")
             return "Failed to generate AI summary."
-
-    async def _download_crx(self) -> str:
-        """Download the CRX file and return the local path"""
-        # Placeholder implementation
-        crx_path = f"/tmp/{self.extension_id}.crx"
-        logger.info(f"Downloading CRX file to {crx_path}")
-        # Implement actual download logic here
-        return crx_path
-
-    async def _analyze_crx(self, crx_path: str) -> Dict[str, Any]:
-        """Analyze the CRX file and return the results"""
-        # Placeholder implementation
-        logger.info(f"Analyzing CRX file at {crx_path}")
-        return {
-            "permissions": ["storage", "tabs"],
-            "permissions_score": 3.5,
-            "third_party_dependencies": ["example.com"]
-        }
 
     async def _cache_results(self, result: Dict[str, Any]):
         """Cache the analysis results in the database"""
