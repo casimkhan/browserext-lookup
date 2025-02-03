@@ -8,7 +8,7 @@ import sqlite3
 import requests
 from contextlib import contextmanager
 from bs4 import BeautifulSoup
-from openai import OpenAI  # Import OpenAI
+from openai import OpenAI
 
 # Configure logging
 logging.basicConfig(
@@ -81,10 +81,102 @@ class ExtensionAnalyzer:
             row = cursor.fetchone()
 
             if row:
-                return json.loads(row["analysis_results"])  # Safely convert JSON string to dictionary
+                return json.loads(row["analysis_results"])
 
         return None
-    
+
+    async def _extract_chrome_store_details(self, soup: BeautifulSoup) -> Dict[str, Any]:
+        """Extract details from Chrome Web Store using BeautifulSoup"""
+        try:
+            # Find the main container
+            name = soup.find('h1', {'class': 'e-f-w'}) or soup.find('h1')
+            description = soup.find('div', {'class': 'C-b-p-j-Pb'}) or soup.find('pre', {'class': 'C-b-p-j-Oa'})
+            
+            # Find review details
+            reviews_div = soup.find('div', {'class': 'rsw-stars'})
+            stars_text = reviews_div.find('span', {'class': 'ba-bc-Xb'}) if reviews_div else None
+            reviews_text = reviews_div.find('span', {'class': 'ba-bc-Yb'}) if reviews_div else None
+            
+            # Find version and last updated
+            additional_info = soup.find_all('div', {'class': 'C-b-p-D-Xe'})
+            version = next((info.find('span').text for info in additional_info if 'Version' in info.text), 'N/A')
+            last_updated = next((info.find('span').text for info in additional_info if 'Updated' in info.text), 'N/A')
+            
+            # Find developer
+            developer = soup.find('div', {'class': 'e-f-Me'})
+            
+            return {
+                "name": name.text.strip() if name else "N/A",
+                "description": description.text.strip() if description else "N/A",
+                "version": version,
+                "total_reviews": int(reviews_text.text.replace(',', '')) if reviews_text else 0,
+                "stars": float(stars_text.text.split('/')[0]) if stars_text else 0.0,
+                "last_updated": last_updated,
+                "developer": developer.text.strip() if developer else "N/A",
+                "size": "N/A",
+                "category": self._extract_category(soup)
+            }
+        except Exception as e:
+            logger.error(f"Failed to parse Chrome store details: {str(e)}")
+            return self._get_default_details()
+
+    async def _extract_edge_store_details(self, soup: BeautifulSoup) -> Dict[str, Any]:
+        """Extract details from Edge Add-ons Store using BeautifulSoup"""
+        try:
+            # Edge store has different HTML structure
+            name = soup.find('h1', {'class': 'product-title'})
+            description = soup.find('div', {'class': 'product-description'})
+            
+            # Rating information
+            rating_div = soup.find('div', {'class': 'rating-value'})
+            reviews_count = soup.find('div', {'class': 'reviews-count'})
+            
+            # Additional details
+            version_div = soup.find('div', {'data-telemetry-name': 'version'})
+            last_updated_div = soup.find('div', {'data-telemetry-name': 'last-updated'})
+            developer_div = soup.find('div', {'class': 'publisher-name'})
+            
+            return {
+                "name": name.text.strip() if name else "N/A",
+                "description": description.text.strip() if description else "N/A",
+                "version": version_div.text.strip() if version_div else "N/A",
+                "total_reviews": int(reviews_count.text.split()[0].replace(',', '')) if reviews_count else 0,
+                "stars": float(rating_div.text.split('/')[0]) if rating_div else 0.0,
+                "last_updated": last_updated_div.text.strip() if last_updated_div else "N/A",
+                "developer": developer_div.text.strip() if developer_div else "N/A",
+                "size": "N/A",
+                "category": self._extract_category(soup)
+            }
+        except Exception as e:
+            logger.error(f"Failed to parse Edge store details: {str(e)}")
+            return self._get_default_details()
+
+    def _get_default_details(self) -> Dict[str, Any]:
+        """Return default details when parsing fails"""
+        return {
+            "name": "N/A",
+            "description": "N/A",
+            "version": "N/A",
+            "total_reviews": 0,
+            "stars": 0.0,
+            "last_updated": "N/A",
+            "developer": "N/A",
+            "size": "N/A",
+            "category": "N/A"
+        }
+
+    def _extract_category(self, soup: BeautifulSoup) -> str:
+        """Extract category information from the store page"""
+        try:
+            if self.store_name == "chrome":
+                category_div = soup.find('div', {'class': 'C-b-p-D-j'})
+                return category_div.text.strip() if category_div else "N/A"
+            else:  # Edge store
+                category_div = soup.find('div', {'class': 'category-name'})
+                return category_div.text.strip() if category_div else "N/A"
+        except Exception:
+            return "N/A"
+
     async def fetch_store_details(self) -> Dict[str, Any]:
         """Fetch extension details from store"""
         store_url = (
@@ -96,60 +188,90 @@ class ExtensionAnalyzer:
         try:
             response = requests.get(store_url, headers={"User-Agent": USER_AGENT})
             response.raise_for_status()
-            html_content = response.text  # Get the raw HTML content
-            return await self._get_openai_extracted_details(html_content)  # Use OpenAI to extract details
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            if self.store_name == "chrome":
+                return await self._extract_chrome_store_details(soup)
+            else:
+                return await self._extract_edge_store_details(soup)
         except Exception as e:
             logger.error(f"Failed to fetch store details: {str(e)}")
             raise HTTPException(status_code=404, detail="Extension not found in store")
 
-    async def _get_openai_extracted_details(self, html_content: str) -> Dict[str, Any]:
-        """Extract extension details using OpenAI"""
+    async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
+        """Get AI summary using OpenAI"""
         try:
             # Prepare the input text for OpenAI
-            prompt = (
-                f"Extract the following details from the provided Chrome Web Store page HTML content:\n"
-                f"- Name\n"
-                f"- Description\n"
-                f"- Version\n"
-                f"- Total Reviews\n"
-                f"- Stars (rating)\n"
-                f"- Last Updated\n"
-                f"- Developer\n"
-                f"- Size\n"
-                f"- Category\n\n"
-                f"Return the details in JSON format.\n\n"
-                f"HTML Content:\n{html_content}"
+            analysis_text = (
+                f"Extension Name: {data['store_details']['name']}\n"
+                f"Description: {data['store_details']['description']}\n"
+                f"Version: {data['store_details']['version']}\n"
+                f"Developer: {data['store_details']['developer']}\n"
+                f"Rating: {data['store_details']['stars']} stars from {data['store_details']['total_reviews']} reviews\n\n"
+                f"Security Analysis:\n"
+                f"- Permissions required: {', '.join(data['analysis_results']['permissions'])}\n"
+                f"- Risk score: {data['analysis_results']['permissions_score']}\n"
+                f"- Third-party domains: {', '.join(data['analysis_results']['third_party_dependencies'])}\n"
             )
             
-            # Call OpenAI API with gpt-3.5-turbo
+            # Call OpenAI API
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Use gpt-3.5-turbo
+                model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that extracts structured data from HTML content."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": "You are a helpful assistant that summarizes browser extension details and security analysis."},
+                    {"role": "user", "content": f"Summarize the following browser extension details and security analysis:\n\n{analysis_text}"}
                 ],
-                max_tokens=500,  # Adjust based on your needs
-                temperature=0.3  # Lower temperature for more precise responses
+                max_tokens=300,
+                temperature=0.7
             )
             
-            # Extract the JSON response from OpenAI
-            json_response = response.choices[0].message.content
-            details = json.loads(json_response)  # Parse the JSON response
-            return details
+            return response.choices[0].message.content
             
         except Exception as e:
             logger.error(f"OpenAI API call failed: {str(e)}")
-            return {
-                "name": "N/A",
-                "description": "N/A",
-                "version": "N/A",
-                "total_reviews": 0,
-                "stars": 0.0,
-                "last_updated": "N/A",
-                "developer": "N/A",
-                "size": "N/A",
-                "category": "N/A"
-            }
+            return "Failed to generate AI summary."
+
+    async def _download_crx(self) -> str:
+        """Download the CRX file and return the local path"""
+        crx_path = f"/tmp/{self.extension_id}.crx"
+        logger.info(f"Downloading CRX file to {crx_path}")
+        # Implement actual download logic here
+        return crx_path
+
+    async def _analyze_crx(self, crx_path: str) -> Dict[str, Any]:
+        """Analyze the CRX file and return the results"""
+        logger.info(f"Analyzing CRX file at {crx_path}")
+        return {
+            "permissions": ["storage", "tabs"],
+            "permissions_score": 3.5,
+            "third_party_dependencies": ["example.com"]
+        }
+
+    async def _cache_results(self, result: Dict[str, Any]):
+        """Cache the analysis results in the database"""
+        with self.db.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO extensions (
+                    id, store_name, name, description, version, total_reviews, stars, 
+                    analysis_results, manifest, ai_summary, last_updated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    self.extension_id,
+                    self.store_name,
+                    result["extension_details"]["name"],
+                    result["extension_details"]["description"],
+                    result["extension_details"]["version"],
+                    result["extension_details"]["total_reviews"],
+                    result["extension_details"]["stars"],
+                    json.dumps(result["analysis_results"]),
+                    "N/A",  # Placeholder for manifest
+                    result["summary"],
+                    result["metadata"]["analyzed_at"]
+                )
+            )
+            conn.commit()
 
     async def analyze_extension(self) -> Dict[str, Any]:
         """Complete extension analysis workflow"""
@@ -159,14 +281,14 @@ class ExtensionAnalyzer:
             if cached:
                 return cached
 
-            # Fetch store details using OpenAI
+            # Fetch store details
             store_details = await self.fetch_store_details()
             
             # Download and analyze CRX
             crx_path = await self._download_crx()
             analysis_results = await self._analyze_crx(crx_path)
             
-            # Get AI summary from OpenAI
+            # Get AI summary
             ai_summary = await self._get_openai_summary({
                 "store_details": store_details,
                 "analysis_results": analysis_results
@@ -218,89 +340,6 @@ class ExtensionAnalyzer:
                 }
             }
 
-    async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
-        """Get AI summary using OpenAI"""
-        try:
-            # Prepare the input text for OpenAI
-            analysis_text = (
-                f"Extension Name: {data['store_details']['name']}\n"
-                f"Description: {data['store_details']['description']}\n"
-                f"Version: {data['store_details']['version']}\n"
-                f"Developer: {data['store_details']['developer']}\n"
-                f"Rating: {data['store_details']['stars']} stars from {data['store_details']['total_reviews']} reviews\n\n"
-                f"Security Analysis:\n"
-                f"- Permissions required: {', '.join(data['analysis_results']['permissions'])}\n"
-                f"- Risk score: {data['analysis_results']['permissions_score']}\n"
-                f"- Third-party domains: {', '.join(data['analysis_results']['third_party_dependencies'])}\n"
-            )
-            
-            # Call OpenAI API with gpt-3.5-turbo
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Use gpt-3.5-turbo
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant that summarizes browser extension details and security analysis."},
-                    {"role": "user", "content": f"Summarize the following browser extension details and security analysis:\n\n{analysis_text}"}
-                ],
-                max_tokens=300,  # Adjust based on your needs
-                temperature=0.7  # Adjust for creativity vs. precision
-            )
-            
-            # Extract the summary from the response
-            summary = response.choices[0].message.content
-            if not summary:
-                logger.warning("OpenAI returned no summary.")
-                return "No summary available."
-            
-            return summary
-            
-        except Exception as e:
-            logger.error(f"OpenAI API call failed: {str(e)}")
-            return "Failed to generate AI summary."
-
-    async def _download_crx(self) -> str:
-        """Download the CRX file and return the local path"""
-        # Placeholder implementation
-        crx_path = f"/tmp/{self.extension_id}.crx"
-        logger.info(f"Downloading CRX file to {crx_path}")
-        # Implement actual download logic here
-        return crx_path
-
-    async def _analyze_crx(self, crx_path: str) -> Dict[str, Any]:
-        """Analyze the CRX file and return the results"""
-        # Placeholder implementation
-        logger.info(f"Analyzing CRX file at {crx_path}")
-        return {
-            "permissions": ["storage", "tabs"],
-            "permissions_score": 3.5,
-            "third_party_dependencies": ["example.com"]
-        }
-
-    async def _cache_results(self, result: Dict[str, Any]):
-        """Cache the analysis results in the database"""
-        with self.db.get_connection() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO extensions (
-                    id, store_name, name, description, version, total_reviews, stars, 
-                    analysis_results, manifest, ai_summary, last_updated
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    self.extension_id,
-                    self.store_name,
-                    result["extension_details"]["name"],
-                    result["extension_details"]["description"],
-                    result["extension_details"]["version"],
-                    result["extension_details"]["total_reviews"],
-                    result["extension_details"]["stars"],
-                    json.dumps(result["analysis_results"]),  # Convert dict to JSON string
-                    "N/A",  # Placeholder for manifest
-                    result["summary"],
-                    result["metadata"]["analyzed_at"]
-                )
-            )
-            conn.commit()
-
 @app.post("/analyze")
 async def analyze_extension(body: dict = Body(...)):
     """
@@ -322,8 +361,8 @@ async def analyze_extension(body: dict = Body(...)):
         )
 
     analyzer = ExtensionAnalyzer(extension_id, store_name)
-    result = await analyzer.analyze_extension()  # Perform analysis synchronously
-    return result  # Return the analysis results directly
+    result = await analyzer.analyze_extension()
+    return result
 
 if __name__ == "__main__":
     import uvicorn
