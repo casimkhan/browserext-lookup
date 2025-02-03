@@ -8,10 +8,10 @@ import sqlite3
 import requests
 from contextlib import contextmanager
 from bs4 import BeautifulSoup
-from openai import OpenAI  # Import OpenAI
+from openai import OpenAI
 import re
-import zipfile  # For handling zip files
-import io  # For handling byte streams
+import zipfile
+import io
 
 # Configure logging
 logging.basicConfig(
@@ -153,8 +153,8 @@ class ExtensionAnalyzer:
             store_details = await self.fetch_store_details()
 
             # Download and analyze CRX
-            crx_path = await self._download_crx()
-            analysis_results = await self._analyze_crx(crx_path)
+            zip_path = await self._download_crx()
+            analysis_results = await self._analyze_crx(zip_path)
 
             # Get AI summary from OpenAI based on crawled data
             ai_summary = await self._get_openai_summary({
@@ -180,8 +180,8 @@ class ExtensionAnalyzer:
             await self._cache_results(result)
 
             # Cleanup
-            if os.path.exists(crx_path):
-                os.remove(crx_path)
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
 
             return result
 
@@ -209,7 +209,7 @@ class ExtensionAnalyzer:
             }
 
     async def _download_crx(self) -> str:
-        """Download the CRX file and return the local path"""
+        """Download the CRX file, rename to ZIP, and return the local path"""
         crx_url = (
             f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1&acceptformat=crx2,crx3&x=id={self.extension_id}&uc"
             if self.store_name == "chrome"
@@ -223,35 +223,50 @@ class ExtensionAnalyzer:
             with open(crx_path, 'wb') as out_file:
                 for chunk in response.iter_content(chunk_size=8192):
                     out_file.write(chunk)
-            logger.info(f"CRX file downloaded to {crx_path}")
-            return crx_path
+            # Rename .crx to .zip
+            zip_path = crx_path.replace('.crx', '.zip')
+            os.rename(crx_path, zip_path)
+            logger.info(f"CRX file downloaded and renamed to {zip_path}")
+            return zip_path
         except requests.RequestException as e:
             logger.error(f"Failed to download CRX file: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to download CRX file")
 
-    async def _analyze_crx(self, crx_path: str) -> Dict[str, Any]:
-        """Analyze the CRX file and return the results including manifest.json content"""
+    async def _analyze_crx(self, zip_path: str) -> Dict[str, Any]:
+        """Analyze the ZIP file (formerly CRX) and return the results including manifest.json content"""
         analysis_results = {
             "permissions": [],
             "permissions_score": 0.0,
             "third_party_dependencies": [],
-            "manifest": None  # Placeholder for manifest content
+            "manifest": None
         }
 
         try:
-            # Read CRX file as a zip file after removing the CRX header
-            with open(crx_path, 'rb') as crx_file:
-                crx_data = crx_file.read()
-                # CRX files start with a 16-byte header. We skip this to treat the rest as ZIP.
-                zip_data = crx_data[16:]  
-            
+            # Read the renamed .zip file which contains CRX data
+            with open(zip_path, 'rb') as f:
+                crx_data = f.read()
+
+            # Check CRX version and extract ZIP data
+            if crx_data.startswith(b'Cr24'):
+                # Handle CRX3 format
+                version = int.from_bytes(crx_data[4:8], byteorder='little')
+                if version != 3:
+                    logger.error("Unsupported CRX version")
+                    return analysis_results
+                header_length = int.from_bytes(crx_data[8:12], byteorder='little')
+                zip_start = 12 + header_length + 32  # Skip header and SHA256
+                zip_data = crx_data[zip_start:]
+            else:
+                # Handle CRX2 format (skip 16 bytes)
+                zip_data = crx_data[16:]
+
+            # Process ZIP data
             with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zip_ref:
                 if 'manifest.json' in zip_ref.namelist():
                     with zip_ref.open('manifest.json') as manifest_file:
                         manifest_content = manifest_file.read()
                         try:
                             analysis_results['manifest'] = json.loads(manifest_content)
-                            # Example: Extract permissions from manifest
                             if 'permissions' in analysis_results['manifest']:
                                 analysis_results['permissions'] = analysis_results['manifest']['permissions']
                         except json.JSONDecodeError:
@@ -259,33 +274,27 @@ class ExtensionAnalyzer:
                 else:
                     logger.warning("No manifest.json found in CRX file")
 
-            # Placeholder for risk score calculation - this would be based on permissions or other factors
+            # Calculate security scores
             analysis_results['permissions_score'] = self._calculate_permission_score(analysis_results['permissions'])
             
-            # Placeholder for third-party dependencies - this would require deeper analysis of the CRX content
-            # analysis_results['third_party_dependencies'] = ... 
-
         except zipfile.BadZipFile:
-            logger.error("The CRX file is not a valid zip archive")
+            logger.error("Invalid ZIP data after processing CRX header")
         except Exception as e:
             logger.error(f"Error analyzing CRX file: {str(e)}")
 
         return analysis_results
 
     def _calculate_permission_score(self, permissions):
-        # This is a very simplistic scoring system. Adjust based on your criteria.
         score = 0.0
         risky_permissions = ['activeTab', 'background', 'bookmarks', 'browsingData', 'clipboardRead', 'clipboardWrite', 'contentSettings', 'cookies', 'debugger', 'downloads', 'geolocation', 'history', 'management', 'nativeMessaging', 'notifications', 'privacy', 'proxy', 'storage', 'tabs', 'unlimitedStorage', 'webNavigation', 'webRequest', 'webRequestBlocking']
         for perm in permissions:
             if perm in risky_permissions:
-                score += 0.5  # Example: each risky permission adds 0.5 to the score
-
+                score += 0.5
         return score
 
     async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
         """Get AI summary using OpenAI"""
         try:
-            # Prepare the input text for OpenAI
             analysis_text = (
                 f"Extension Name: {data['store_details']['name']}\n"
                 f"Description: {data['store_details']['description']}\n"
@@ -298,24 +307,18 @@ class ExtensionAnalyzer:
                 f"- Third-party domains: {', '.join(data['analysis_results']['third_party_dependencies'])}\n"
             )
 
-            # Call OpenAI API with gpt-3.5-turbo
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Use gpt-3.5-turbo
+                model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that summarizes browser extension details and security analysis."},
                     {"role": "user", "content": f"Summarize the following browser extension details and security analysis:\n\n{analysis_text}"}
                 ],
-                max_tokens=300,  # Adjust based on your needs
-                temperature=0.7  # Adjust for creativity vs. precision
+                max_tokens=300,
+                temperature=0.7
             )
 
-            # Extract the summary from the response
             summary = response.choices[0].message.content
-            if not summary:
-                logger.warning("OpenAI returned no summary.")
-                return "No summary available."
-
-            return summary
+            return summary if summary else "No summary available."
 
         except Exception as e:
             logger.error(f"OpenAI API call failed: {str(e)}")
@@ -339,7 +342,7 @@ class ExtensionAnalyzer:
                     result["extension_details"]["version"],
                     result["extension_details"]["total_reviews"],
                     result["extension_details"]["stars"],
-                    json.dumps(result["analysis_results"]),  # Convert dict to JSON string
+                    json.dumps(result["analysis_results"]),
                     json.dumps(result["analysis_results"]["manifest"]) if result["analysis_results"]["manifest"] else "N/A",
                     result["summary"],
                     result["metadata"]["analyzed_at"]
@@ -368,8 +371,8 @@ async def analyze_extension(body: dict = Body(...)):
         )
 
     analyzer = ExtensionAnalyzer(extension_id, store_name)
-    result = await analyzer.analyze_extension()  # Perform analysis synchronously
-    return result  # Return the analysis results directly
+    result = await analyzer.analyze_extension()
+    return result
 
 if __name__ == "__main__":
     import uvicorn
