@@ -242,26 +242,8 @@ class ExtensionAnalyzer:
         }
 
         try:
-            # Read the renamed .zip file which contains CRX data
-            with open(zip_path, 'rb') as f:
-                crx_data = f.read()
-
-            # Check CRX version and extract ZIP data
-            if crx_data.startswith(b'Cr24'):
-                # Handle CRX3 format
-                version = int.from_bytes(crx_data[4:8], byteorder='little')
-                if version != 3:
-                    logger.error("Unsupported CRX version")
-                    return analysis_results
-                header_length = int.from_bytes(crx_data[8:12], byteorder='little')
-                zip_start = 12 + header_length + 32  # Skip header and SHA256
-                zip_data = crx_data[zip_start:]
-            else:
-                # Handle CRX2 format (skip 16 bytes)
-                zip_data = crx_data[16:]
-
-            # Process ZIP data
-            with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zip_ref:
+            # Open the renamed .zip file and extract its contents
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 if 'manifest.json' in zip_ref.namelist():
                     with zip_ref.open('manifest.json') as manifest_file:
                         manifest_content = manifest_file.read()
@@ -278,7 +260,7 @@ class ExtensionAnalyzer:
             analysis_results['permissions_score'] = self._calculate_permission_score(analysis_results['permissions'])
             
         except zipfile.BadZipFile:
-            logger.error("Invalid ZIP data after processing CRX header")
+            logger.error("The file is not a valid ZIP archive")
         except Exception as e:
             logger.error(f"Error analyzing CRX file: {str(e)}")
 
