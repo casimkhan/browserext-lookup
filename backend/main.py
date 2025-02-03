@@ -75,36 +75,41 @@ def extract_crx_to_dir(crx_data: bytes, extract_to: str) -> None:
     """
     Extracts a CRX file (after stripping the header if necessary) into the given directory.
     """
-    # Check for CRX header
-    if crx_data[:4] != b'Cr24':
-        # No CRX header; assume raw ZIP data
-        zip_data = crx_data
-        logger.info("No CRX header detected; treating file as a ZIP archive")
-    else:
-        version = int.from_bytes(crx_data[4:8], 'little')
-        logger.info(f"Detected CRX version: {version}")
-        if version == 2:
-            public_key_len = int.from_bytes(crx_data[8:12], 'little')
-            signature_len = int.from_bytes(crx_data[12:16], 'little')
-            zip_start = 16 + public_key_len + signature_len
-        elif version == 3:
-            header_len = int.from_bytes(crx_data[8:12], 'little')
-            zip_start = 12 + header_len
+    try:
+        # Check for CRX header
+        if crx_data[:4] != b'Cr24':
+            # No CRX header; assume raw ZIP data
+            zip_data = crx_data
+            logger.info("No CRX header detected; treating file as a ZIP archive")
         else:
-            raise Exception(f"Unsupported CRX version: {version}")
-        zip_data = crx_data[zip_start:]
-    
-    # Write the ZIP data to a temporary file so zipfile.ZipFile can read it
-    temp_zip_path = os.path.join(extract_to, "extension.zip")
-    with open(temp_zip_path, 'wb') as f:
-        f.write(zip_data)
-    
-    # Extract the ZIP archive into the directory
-    with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_to)
-    logger.info(f"Extracted CRX to {extract_to}")
-    # Optionally remove the temporary ZIP file
-    os.remove(temp_zip_path)
+            version = int.from_bytes(crx_data[4:8], 'little')
+            logger.info(f"Detected CRX version: {version}")
+            if version == 2:
+                public_key_len = int.from_bytes(crx_data[8:12], 'little')
+                signature_len = int.from_bytes(crx_data[12:16], 'little')
+                zip_start = 16 + public_key_len + signature_len
+            elif version == 3:
+                header_len = int.from_bytes(crx_data[8:12], 'little')
+                zip_start = 12 + header_len
+            else:
+                raise Exception(f"Unsupported CRX version: {version}")
+            zip_data = crx_data[zip_start:]
+        
+        # Write the ZIP data to a temporary file so zipfile.ZipFile can read it
+        temp_zip_path = os.path.join(extract_to, "extension.zip")
+        with open(temp_zip_path, 'wb') as f:
+            f.write(zip_data)
+        
+        # Extract the ZIP archive into the directory
+        with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_to)
+        logger.info(f"Extracted CRX to {extract_to}")
+        
+        # Optionally remove the temporary ZIP file
+        os.remove(temp_zip_path)
+    except Exception as e:
+        logger.error(f"Failed to extract CRX file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to extract extension package")
 
 class ExtensionAnalyzer:
     def __init__(self, extension_id: str, store_name: str):
@@ -309,7 +314,6 @@ class ExtensionAnalyzer:
             )
             conn.commit()
 
-    # --- Newly added methods to fix missing attribute errors ---
     async def fetch_store_details(self) -> Dict[str, Any]:
         return self._get_default_details()
 
