@@ -12,6 +12,8 @@ from bs4 import BeautifulSoup
 from openai import OpenAI
 import zipfile
 import re
+import tempfile
+import shutil
 
 # Configure logging
 logging.basicConfig(
@@ -67,6 +69,42 @@ app = FastAPI(
     description="API for analyzing browser extensions with OpenAI integration",
     version="2.0.0"
 )
+
+# --- Helper function for CRX extraction ---
+def extract_crx_to_dir(crx_data: bytes, extract_to: str) -> None:
+    """
+    Extracts a CRX file (after stripping the header if necessary) into the given directory.
+    """
+    # Check for CRX header
+    if crx_data[:4] != b'Cr24':
+        # No CRX header; assume raw ZIP data
+        zip_data = crx_data
+        logger.info("No CRX header detected; treating file as a ZIP archive")
+    else:
+        version = int.from_bytes(crx_data[4:8], 'little')
+        logger.info(f"Detected CRX version: {version}")
+        if version == 2:
+            public_key_len = int.from_bytes(crx_data[8:12], 'little')
+            signature_len = int.from_bytes(crx_data[12:16], 'little')
+            zip_start = 16 + public_key_len + signature_len
+        elif version == 3:
+            header_len = int.from_bytes(crx_data[8:12], 'little')
+            zip_start = 12 + header_len
+        else:
+            raise Exception(f"Unsupported CRX version: {version}")
+        zip_data = crx_data[zip_start:]
+    
+    # Write the ZIP data to a temporary file so zipfile.ZipFile can read it
+    temp_zip_path = os.path.join(extract_to, "extension.zip")
+    with open(temp_zip_path, 'wb') as f:
+        f.write(zip_data)
+    
+    # Extract the ZIP archive into the directory
+    with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_to)
+    logger.info(f"Extracted CRX to {extract_to}")
+    # Optionally remove the temporary ZIP file
+    os.remove(temp_zip_path)
 
 class ExtensionAnalyzer:
     def __init__(self, extension_id: str, store_name: str):
@@ -139,15 +177,10 @@ class ExtensionAnalyzer:
     async def _extract_edge_store_details(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """Extract details from Edge Add-ons Store using BeautifulSoup"""
         try:
-            # Edge store has different HTML structure
             name = soup.find('h1', {'class': 'product-title'})
             description = soup.find('div', {'class': 'product-description'})
-            
-            # Rating information
             rating_div = soup.find('div', {'class': 'rating-value'})
             reviews_count = soup.find('div', {'class': 'reviews-count'})
-            
-            # Additional details
             version_div = soup.find('div', {'data-telemetry-name': 'version'})
             last_updated_div = soup.find('div', {'data-telemetry-name': 'last-updated'})
             developer_div = soup.find('div', {'class': 'publisher-name'})
@@ -168,7 +201,6 @@ class ExtensionAnalyzer:
             return self._get_default_details()
 
     def _get_default_details(self) -> Dict[str, Any]:
-        """Return default details when parsing fails"""
         return {
             "name": "N/A",
             "description": "N/A",
@@ -182,7 +214,6 @@ class ExtensionAnalyzer:
         }
 
     async def _download_crx(self) -> io.BytesIO:
-        """Download the CRX file and return the file object"""
         try:
             if self.store_name == "chrome":
                 crx_url = f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=49.0&x=id%3D{self.extension_id}%26uc"
@@ -192,31 +223,26 @@ class ExtensionAnalyzer:
             logger.info(f"Downloading CRX from {crx_url}")
             response = requests.get(crx_url, headers={"User-Agent": USER_AGENT}, timeout=10)
             response.raise_for_status()
-
             return io.BytesIO(response.content)
         except requests.exceptions.RequestException as e:
             logger.error(f"CRX download failed: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to download extension package")
 
     def _calculate_risk_score(self, manifest: dict) -> float:
-        """Calculate security risk score based on manifest permissions"""
         high_risk_permissions = {
             'debugger', 'proxy', 'webRequest', 'webRequestBlocking',
             'desktopCapture', 'management', 'privacy', 'sessions'
         }
-        
         permissions = set(manifest.get('permissions', []) + manifest.get('optional_permissions', []))
         return min(len(permissions) + len(high_risk_permissions.intersection(permissions)), 10) / 2
 
     def _extract_domains(self, manifest: dict) -> list:
-        """Extract third-party domains from manifest"""
         domains = set()
         patterns = [
             *manifest.get('content_scripts', []),
             manifest.get('externally_connectable', {}).get('matches', []),
             manifest.get('web_accessible_resources', [])
         ]
-
         for pattern in patterns:
             if isinstance(pattern, dict):
                 for match in pattern.get('matches', []):
@@ -227,38 +253,21 @@ class ExtensionAnalyzer:
                 domain = re.findall(r'https?://([^/]+)', pattern)
                 if domain:
                     domains.update(domain)
-
         return list(domains)[:3]
 
     async def _analyze_crx(self, crx_file: io.BytesIO) -> Dict[str, Any]:
-        """Analyze the CRX file and return the results"""
+        """Analyze the CRX file by extracting it and reading the manifest."""
         try:
             crx_data = crx_file.read()
-            # Check for the CRX magic header
-            if crx_data[:4] != b'Cr24':
-                # Not a CRX file; assume it is a raw ZIP archive
-                zip_data = crx_data
-            else:
-                # It's a CRX file. Read the version.
-                version = int.from_bytes(crx_data[4:8], 'little')
-                if version == 2:
-                    # CRX2 format: next 4 bytes are public key length, then 4 bytes signature length.
-                    public_key_len = int.from_bytes(crx_data[8:12], 'little')
-                    signature_len = int.from_bytes(crx_data[12:16], 'little')
-                    zip_start = 16 + public_key_len + signature_len
-                    zip_data = crx_data[zip_start:]
-                elif version == 3:
-                    # CRX3 format: next 4 bytes are header length.
-                    header_len = int.from_bytes(crx_data[8:12], 'little')
-                    zip_start = 12 + header_len
-                    zip_data = crx_data[zip_start:]
-                else:
-                    raise Exception(f"Unsupported CRX version: {version}")
-
-            zip_io = io.BytesIO(zip_data)
-            with zipfile.ZipFile(zip_io) as zf:
-                manifest_data = zf.read('manifest.json').decode('utf-8')
-                manifest = json.loads(manifest_data)
+            logger.info("Starting CRX extraction process.")
+            # Use a temporary directory for extraction
+            with tempfile.TemporaryDirectory() as temp_dir:
+                extract_crx_to_dir(crx_data, temp_dir)
+                manifest_path = os.path.join(temp_dir, 'manifest.json')
+                if not os.path.exists(manifest_path):
+                    raise Exception("manifest.json not found after extraction.")
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    manifest = json.load(f)
 
             return {
                 "permissions": list(set(manifest.get('permissions', []) + manifest.get('optional_permissions', []))),
@@ -276,7 +285,6 @@ class ExtensionAnalyzer:
             }
 
     async def _cache_results(self, result: Dict[str, Any]):
-        """Cache the analysis results in the database"""
         with self.db.get_connection() as conn:
             conn.execute(
                 """
@@ -303,41 +311,24 @@ class ExtensionAnalyzer:
 
     # --- Newly added methods to fix missing attribute errors ---
     async def fetch_store_details(self) -> Dict[str, Any]:
-        """
-        Stub method for fetching store details.
-        Currently returns default details.
-        """
         return self._get_default_details()
 
     async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
-        """
-        Stub method for generating an AI summary using OpenAI.
-        Currently returns a placeholder string.
-        """
         return "AI summary not implemented."
 
     async def analyze_extension(self) -> Dict[str, Any]:
-        """Complete extension analysis workflow"""
         try:
-            # Check cache first
             cached = await self._get_cached_analysis()
             if cached:
                 return cached
 
-            # Fetch store details
             store_details = await self.fetch_store_details()
-            
-            # Download and analyze CRX
             crx_file = await self._download_crx()
             analysis_results = await self._analyze_crx(crx_file)
-            
-            # Get AI summary
             ai_summary = await self._get_openai_summary({
                 "store_details": store_details,
                 "analysis_results": analysis_results
             })
-            
-            # Combine results
             result = {
                 "extension_details": store_details,
                 "analysis_results": analysis_results,
@@ -347,12 +338,8 @@ class ExtensionAnalyzer:
                     "store": self.store_name
                 }
             }
-            
-            # Cache results
             await self._cache_results(result)
-            
             return result
-            
         except HTTPException as e:
             logger.error(f"Analysis failed: {str(e)}")
             raise
@@ -362,9 +349,6 @@ class ExtensionAnalyzer:
 
 @app.post("/analyze")
 async def analyze_extension(body: dict = Body(...)):
-    """
-    Analyze a browser extension with AI-powered summary
-    """
     extension_id = body.get("extension_id")
     store_name = body.get("store_name")
 
