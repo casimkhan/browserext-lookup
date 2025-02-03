@@ -73,7 +73,33 @@ class ExtensionAnalyzer:
         self.extension_id = extension_id
         self.store_name = store_name.lower()
         self.db = DatabaseManager()
-    
+       
+    async def fetch_store_details(self) -> Dict[str, Any]:
+        """Fetch store details based on the store name (Chrome or Edge)."""
+        try:
+            if self.store_name == "chrome":
+                url = f"https://chrome.google.com/webstore/detail/{self.extension_id}"
+            elif self.store_name == "edge":
+                url = f"https://microsoftedge.microsoft.com/addons/detail/{self.extension_id}"
+            else:
+                raise ValueError(f"Unsupported store: {self.store_name}")
+
+            # Fetch the store page
+            response = requests.get(url, headers={"User-Agent": USER_AGENT})
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            # Extract details based on the store
+            if self.store_name == "chrome":
+                return await self._extract_chrome_store_details(soup)
+            elif self.store_name == "edge":
+                return await self._extract_edge_store_details(soup)
+            else:
+                return self._get_default_details()
+
+        except Exception as e:
+            logger.error(f"Failed to fetch store details: {str(e)}")
+            return self._get_default_details()
     async def _get_cached_analysis(self):
         """Retrieve cached analysis result from the database if available."""
         with self.db.get_connection() as conn:
