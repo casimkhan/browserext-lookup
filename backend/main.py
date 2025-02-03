@@ -16,7 +16,7 @@ import re
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctasctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -139,8 +139,30 @@ class ExtensionAnalyzer:
     async def _extract_edge_store_details(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """Extract details from Edge Add-ons Store using BeautifulSoup"""
         try:
-            # Existing Edge extraction logic remains same
-            # ... (keep original Edge extraction code) ...
+            # Edge store has different HTML structure
+            name = soup.find('h1', {'class': 'product-title'})
+            description = soup.find('div', {'class': 'product-description'})
+            
+            # Rating information
+            rating_div = soup.find('div', {'class': 'rating-value'})
+            reviews_count = soup.find('div', {'class': 'reviews-count'})
+            
+            # Additional details
+            version_div = soup.find('div', {'data-telemetry-name': 'version'})
+            last_updated_div = soup.find('div', {'data-telemetry-name': 'last-updated'})
+            developer_div = soup.find('div', {'class': 'publisher-name'})
+            
+            return {
+                "name": name.text.strip() if name else "N/A",
+                "description": description.text.strip() if description else "N/A",
+                "version": version_div.text.strip() if version_div else "N/A",
+                "total_reviews": int(reviews_count.text.split()[0].replace(',', '')) if reviews_count else 0,
+                "stars": float(rating_div.text.split('/')[0]) if rating_div else 0.0,
+                "last_updated": last_updated_div.text.strip() if last_updated_div else "N/A",
+                "developer": developer_div.text.strip() if developer_div else "N/A",
+                "size": "N/A",
+                "category": "N/A"
+            }
         except Exception as e:
             logger.error(f"Failed to parse Edge store details: {str(e)}")
             return self._get_default_details()
@@ -159,8 +181,8 @@ class ExtensionAnalyzer:
             "category": "N/A"
         }
 
-    async def _download_crx(self) -> str:
-        """Download the CRX file and return the local path"""
+    async def _download_crx(self) -> io.BytesIO:
+        """Download the CRX file and return the file object"""
         try:
             if self.store_name == "chrome":
                 crx_url = f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=49.0&x=id%3D{self.extension_id}%26uc"
@@ -254,8 +276,49 @@ class ExtensionAnalyzer:
             )
             conn.commit()
 
-    # Rest of the class remains unchanged except for the modified methods above
-    # ... (keep original analyze_extension and other methods as-is) ...
+    async def analyze_extension(self) -> Dict[str, Any]:
+        """Complete extension analysis workflow"""
+        try:
+            # Check cache first
+            cached = await self._get_cached_analysis()
+            if cached:
+                return cached
+
+            # Fetch store details
+            store_details = await self.fetch_store_details()
+            
+            # Download and analyze CRX
+            crx_file = await self._download_crx()
+            analysis_results = await self._analyze_crx(crx_file)
+            
+            # Get AI summary
+            ai_summary = await self._get_openai_summary({
+                "store_details": store_details,
+                "analysis_results": analysis_results
+            })
+            
+            # Combine results
+            result = {
+                "extension_details": store_details,
+                "analysis_results": analysis_results,
+                "summary": ai_summary,
+                "metadata": {
+                    "analyzed_at": datetime.utcnow().isoformat(),
+                    "store": self.store_name
+                }
+            }
+            
+            # Cache results
+            await self._cache_results(result)
+            
+            return result
+            
+        except HTTPException as e:
+            logger.error(f"Analysis failed: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Analysis failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/analyze")
 async def analyze_extension(body: dict = Body(...)):
@@ -278,8 +341,7 @@ async def analyze_extension(body: dict = Body(...)):
         )
 
     analyzer = ExtensionAnalyzer(extension_id, store_name)
-    result = await analyzer.analyze_extension()
-    return result
+    return await analyzer.analyze_extension()
 
 if __name__ == "__main__":
     import uvicorn
