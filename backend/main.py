@@ -233,18 +233,27 @@ class ExtensionAnalyzer:
     async def _analyze_crx(self, crx_file: io.BytesIO) -> Dict[str, Any]:
         """Analyze the CRX file and return the results"""
         try:
-            # Read the entire CRX file
             crx_data = crx_file.read()
-            # Check if the file has the CRX header ("Cr24")
-            if crx_data[:4] == b'Cr24':
-                # Extract header details
-                version = int.from_bytes(crx_data[4:8], 'little')
-                public_key_len = int.from_bytes(crx_data[8:12], 'little')
-                signature_len = int.from_bytes(crx_data[12:16], 'little')
-                zip_start = 16 + public_key_len + signature_len
-                zip_data = crx_data[zip_start:]
-            else:
+            # Check for the CRX magic header
+            if crx_data[:4] != b'Cr24':
+                # Not a CRX file; assume it is a raw ZIP archive
                 zip_data = crx_data
+            else:
+                # It's a CRX file. Read the version.
+                version = int.from_bytes(crx_data[4:8], 'little')
+                if version == 2:
+                    # CRX2 format: next 4 bytes are public key length, then 4 bytes signature length.
+                    public_key_len = int.from_bytes(crx_data[8:12], 'little')
+                    signature_len = int.from_bytes(crx_data[12:16], 'little')
+                    zip_start = 16 + public_key_len + signature_len
+                    zip_data = crx_data[zip_start:]
+                elif version == 3:
+                    # CRX3 format: next 4 bytes are header length.
+                    header_len = int.from_bytes(crx_data[8:12], 'little')
+                    zip_start = 12 + header_len
+                    zip_data = crx_data[zip_start:]
+                else:
+                    raise Exception(f"Unsupported CRX version: {version}")
 
             zip_io = io.BytesIO(zip_data)
             with zipfile.ZipFile(zip_io) as zf:
