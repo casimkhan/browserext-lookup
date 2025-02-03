@@ -12,6 +12,7 @@ from openai import OpenAI
 import re
 import zipfile
 import io
+import hashlib  # For calculating file hash
 
 # Configure logging
 logging.basicConfig(
@@ -153,7 +154,7 @@ class ExtensionAnalyzer:
             store_details = await self.fetch_store_details()
 
             # Download and analyze CRX
-            zip_path = await self._download_crx()
+            zip_path, file_size, file_hash = await self._download_crx()
             analysis_results = await self._analyze_crx(zip_path)
 
             # Get AI summary from OpenAI based on crawled data
@@ -169,7 +170,9 @@ class ExtensionAnalyzer:
                 "summary": ai_summary,
                 "metadata": {
                     "analyzed_at": datetime.utcnow().isoformat(),
-                    "store": self.store_name
+                    "store": self.store_name,
+                    "file_size": file_size,  # Include file size in the response
+                    "file_hash": file_hash   # Include file hash in the response
                 }
             }
 
@@ -193,7 +196,9 @@ class ExtensionAnalyzer:
                 "summary": f"Error: {str(e)}",
                 "metadata": {
                     "analyzed_at": datetime.utcnow().isoformat(),
-                    "store": self.store_name
+                    "store": self.store_name,
+                    "file_size": None,
+                    "file_hash": None
                 }
             }
         except Exception as e:
@@ -204,12 +209,14 @@ class ExtensionAnalyzer:
                 "summary": f"Unexpected error: {str(e)}",
                 "metadata": {
                     "analyzed_at": datetime.utcnow().isoformat(),
-                    "store": self.store_name
+                    "store": self.store_name,
+                    "file_size": None,
+                    "file_hash": None
                 }
             }
 
-    async def _download_crx(self) -> str:
-        """Download the CRX file, rename to ZIP, and return the local path"""
+    async def _download_crx(self) -> tuple[str, int, str]:
+        """Download the CRX file, rename to ZIP, and return the local path, size, and hash"""
         crx_url = (
             f"https://clients2.google.com/service/update2/crx?response=redirect&prodversion=1&acceptformat=crx2,crx3&x=id={self.extension_id}&uc"
             if self.store_name == "chrome"
@@ -223,14 +230,27 @@ class ExtensionAnalyzer:
             with open(crx_path, 'wb') as out_file:
                 for chunk in response.iter_content(chunk_size=8192):
                     out_file.write(chunk)
+            
+            # Calculate file size and hash
+            file_size = os.path.getsize(crx_path)
+            file_hash = self._calculate_file_hash(crx_path)
+
             # Rename .crx to .zip
             zip_path = crx_path.replace('.crx', '.zip')
             os.rename(crx_path, zip_path)
             logger.info(f"CRX file downloaded and renamed to {zip_path}")
-            return zip_path
+            return zip_path, file_size, file_hash
         except requests.RequestException as e:
             logger.error(f"Failed to download CRX file: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to download CRX file")
+
+    def _calculate_file_hash(self, file_path: str) -> str:
+        """Calculate SHA-256 hash of a file"""
+        sha256_hash = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(chunk)
+        return sha256_hash.hexdigest()
 
     async def _analyze_crx(self, zip_path: str) -> Dict[str, Any]:
         """Analyze the ZIP file (formerly CRX) and return the results including manifest.json content"""
