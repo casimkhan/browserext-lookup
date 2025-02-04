@@ -117,12 +117,8 @@ class ExtensionAnalyzer:
         details['name'] = self._extract_text(soup, 'h1', class_='Pa2dE') or 'N/A'
         details['description'] = self._extract_text(soup, 'div', class_='JJ3H1e jVwmLb') or 'N/A'
         details['version'] = self._extract_text(soup, 'div', class_='N3EXSc') or 'N/A'
-        details['total_reviews'] = self._extract_number(soup, 'span', class_='xJEoWe') or 0
+        details['total_reviews'] = self._extract_number(soup, 'span', class_='PmmSTd') or 0
         details['stars'] = self._extract_rating(soup, 'span', class_='Vq0ZA') or 0.0
-        details['last_updated'] = self._extract_text(soup, 'div', class_='nws2nb') or 'N/A'  # Example for Chrome
-        details['developer'] = self._extract_text(soup, 'span', class_='e-f-ih') or 'N/A'  # Example for Chrome
-        details['size'] = 'N/A'  # Size might not be directly available
-        details['category'] = self._extract_text(soup, 'div', class_='gqpEIe bgp7Ye') or 'N/A'  # Example for Chrome
 
         return details
 
