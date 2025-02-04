@@ -116,13 +116,13 @@ class ExtensionAnalyzer:
         # Extract details using class names or patterns
         details['name'] = self._extract_text(soup, 'h1', class_='Pa2dE') or 'N/A'
         details['description'] = self._extract_text(soup, 'div', class_='JJ3H1e jVwmLb') or 'N/A'
-        details['version'] = self._extract_text(soup, 'div', class_='v7vKf') or 'N/A'
-        details['total_reviews'] = self._extract_number(soup, 'div', class_='p9xg1 Yemige') or 0
-        details['stars'] = self._extract_rating(soup, 'div', class_='PmmSTd') or 0.0
-        details['last_updated'] = self._extract_text(soup, 'div', class_='h-CkGe') or 'N/A'  # Example for Chrome
+        details['version'] = self._extract_text(soup, 'div', class_='N3EXSc') or 'N/A'
+        details['total_reviews'] = self._extract_number(soup, 'span', class_='xJEoWe') or 0
+        details['stars'] = self._extract_rating(soup, 'span', class_='Vq0ZA') or 0.0
+        details['last_updated'] = self._extract_text(soup, 'div', class_='nws2nb') or 'N/A'  # Example for Chrome
         details['developer'] = self._extract_text(soup, 'span', class_='e-f-ih') or 'N/A'  # Example for Chrome
         details['size'] = 'N/A'  # Size might not be directly available
-        details['category'] = self._extract_text(soup, 'div', class_='Cj b') or 'N/A'  # Example for Chrome
+        details['category'] = self._extract_text(soup, 'div', class_='gqpEIe bgp7Ye') or 'N/A'  # Example for Chrome
 
         return details
 
@@ -289,18 +289,31 @@ class ExtensionAnalyzer:
         }
 
         try:
+            logger.info(f"Opening ZIP file: {zip_path}")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                if 'manifest.json' in zip_ref.namelist():
+                # Log all files in the ZIP for debugging
+                zip_files = zip_ref.namelist()
+                logger.info(f"Files in ZIP: {zip_files}")
+
+                if 'manifest.json' in zip_files:
+                    logger.info("Found manifest.json in ZIP file")
                     with zip_ref.open('manifest.json') as manifest_file:
                         manifest_content = manifest_file.read()
+                        logger.info(f"Raw manifest content: {manifest_content}")
+
                         try:
-                            analysis_results['manifest'] = json.loads(manifest_content)
-                            analysis_results['permissions'] = analysis_results['manifest'].get('permissions', [])
-                        except json.JSONDecodeError:
-                            logger.warning("Failed to parse manifest.json")
+                            manifest_json = json.loads(manifest_content)
+                            logger.info(f"Parsed manifest.json: {manifest_json}")
+                            analysis_results['manifest'] = manifest_json
+                            analysis_results['permissions'] = manifest_json.get('permissions', [])
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse manifest.json: {str(e)}")
+                            raise HTTPException(status_code=500, detail="Invalid manifest.json format")
                 else:
                     logger.warning("No manifest.json found in extension")
+                    raise HTTPException(status_code=404, detail="manifest.json not found in extension")
 
+            # Calculate security scores
             analysis_results['permissions_score'] = self._calculate_permission_score(
                 analysis_results['permissions']
             )
