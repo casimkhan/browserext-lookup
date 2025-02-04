@@ -114,13 +114,13 @@ class ExtensionAnalyzer:
         details = {}
 
         # Extract details using class names or patterns
-        details['name'] = self._extract_text(soup, 'h1', class_=['Pa2dE', 'c011070 c011075 c011080 c011085']) or 'N/A'
-        details['description'] = self._extract_text(soup, 'div', class_=['JJ3H1e', 'jVwmLb','c011136']) or 'N/A'
-        details['version'] = self._extract_text(soup, 'div', class_=['N3EXSc','c011070 c011077 c011069']) or 'N/A'
-        details['total_reviews'] = self._extract_number(soup, 'span', class_=['PmmSTd','c011089 c011502']) or 0
-        details['stars'] = self._extract_rating(soup, 'span', class_=['Vq0ZA','c011088 c011685']) or 0.0
-
+        details['name'] = self._extract_text(soup, 'h1', class_=['Pa2dE', 'c011070', 'c011075', 'c011080', 'c011085']) or 'N/A'
+        details['description'] = self._extract_text(soup, 'div', class_=['JJ3H1e', 'jVwmLb', 'c011136']) or 'N/A'
+        details['version'] = self._extract_text(soup, 'div', class_=['N3EXSc', 'c011070', 'c011077', 'c011069']) or 'N/A'
+        details['total_reviews'] = self._extract_number(soup, 'span', class_=['PmmSTd', 'c011089', 'c011502']) or 0
+        details['stars'] = self._extract_rating(soup, 'span', class_=['Vq0ZA', 'c011088', 'c011685']) or 0.0
         return details
+
 
     def _extract_text(self, soup, tag, **kwargs):
         element = soup.find(tag, **kwargs)
