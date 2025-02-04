@@ -113,12 +113,37 @@ class ExtensionAnalyzer:
         soup = BeautifulSoup(html_content, 'html.parser')
         details = {}
 
-        # Extract details using class names or patterns
-        details['name'] = self._extract_text(soup, 'h1', class_=['Pa2dE', 'c011070', 'c011075', 'c011080', 'c011085']) or 'N/A'
-        details['description'] = self._extract_text(soup, 'div', class_=['JJ3H1e', 'jVwmLb', 'c011136']) or 'N/A'
-        details['version'] = self._extract_text(soup, 'div', class_=['N3EXSc', 'c011070', 'c011077', 'c011069']) or 'N/A'
-        details['total_reviews'] = self._extract_number(soup, 'span', class_=['PmmSTd', 'c011089', 'c011502']) or 0
-        details['stars'] = self._extract_rating(soup, 'span', class_=['Vq0ZA', 'c011088', 'c011685']) or 0.0
+    # Function to check multiple class names separately
+    def extract_with_multiple_classes(tag, class_list):
+        for class_name in class_list:
+            text = self._extract_text(soup, tag, class_=[class_name])
+            if text:
+                return text
+        return 'N/A'
+
+    # Extract details using multiple attempts
+        details['name'] = extract_with_multiple_classes('h1', ['Pa2dE', 'c011070 c011075 c011080 c011085'])
+        details['description'] = extract_with_multiple_classes('div', ['JJ3H1e', 'jVwmLb', 'c011136'])
+        details['version'] = extract_with_multiple_classes('div', ['N3EXSc', 'c011070 c011077 c011069'])
+
+    # Numeric extractions (if functions allow multiple attempts)
+    def extract_number_with_multiple_classes(tag, class_list):
+        for class_name in class_list:
+            number = self._extract_number(soup, tag, class_=[class_name])
+            if number:
+                return number
+        return 0
+
+    def extract_rating_with_multiple_classes(tag, class_list):
+        for class_name in class_list:
+            rating = self._extract_rating(soup, tag, class_=[class_name])
+            if rating:
+                return rating
+        return 0.0
+
+        details['total_reviews'] = extract_number_with_multiple_classes('span', ['PmmSTd', 'c011089 c011502'])
+        details['stars'] = extract_rating_with_multiple_classes('span', ['Vq0ZA', 'c011088 c011685'])
+
         return details
 
 
