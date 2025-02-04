@@ -108,23 +108,68 @@ class ExtensionAnalyzer:
             logger.error(f"Failed to fetch store details: {str(e)}")
             raise HTTPException(status_code=404, detail="Extension not found in store")
 
-    def _crawl_html_details(self, html_content: str) -> Dict[str, Any]:
-        """Crawl the HTML to extract specific details."""
-        soup = BeautifulSoup(html_content, 'html.parser')
-        details = {}
+def _crawl_html_details(self, html_content: str) -> Dict[str, Any]:
+    """Crawl the HTML to extract specific details."""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    details = {}
 
-        # Extract details using class names or patterns
-        details['name'] = self._extract_text(soup, 'h1', class_=['Pa2dE', 'c011070 c011075 c011080 c011085']) or 'N/A'
-        details['description'] = self._extract_text(soup, 'div', class_=['JJ3H1e', 'jVwmLb','c011136']) or 'N/A'
-        details['version'] = self._extract_text(soup, 'div', class_=['N3EXSc','c011070 c011077 c011069']) or 'N/A'
-        details['total_reviews'] = self._extract_number(soup, 'span', class_=['PmmSTd','c011089 c011502']) or 0
-        details['stars'] = self._extract_rating(soup, 'span', class_=['Vq0ZA','c011088 c011685']) or 0.0
-        details['name'] = self._extract_text(soup, 'h1', class_=['Pa2dE', 'c011070', 'c011075', 'c011080', 'c011085']) or 'N/A'
-        details['description'] = self._extract_text(soup, 'div', class_=['JJ3H1e', 'jVwmLb', 'c011136']) or 'N/A'
-        details['version'] = self._extract_text(soup, 'div', class_=['N3EXSc', 'c011070', 'c011077', 'c011069']) or 'N/A'
-        details['total_reviews'] = self._extract_number(soup, 'span', class_=['PmmSTd', 'c011089', 'c011502']) or 0
-        details['stars'] = self._extract_rating(soup, 'span', class_=['Vq0ZA', 'c011088', 'c011685']) or 0.0
-        return details
+    # Extract name with multiple class possibilities
+    name_classes = [
+        'Pa2dE',
+        'c011070 c011075 c011080 c011085'
+    ]
+    for cls in name_classes:
+        details['name'] = self._extract_text(soup, 'h1', class_=cls)
+        if details['name']:
+            break
+    else:
+        details['name'] = 'N/A'
+
+    # Extract description with specified class
+    desc_classes = [
+        'JJ3H1e jVwmLb c011136'
+    ]
+    for cls in desc_classes:
+        details['description'] = self._extract_text(soup, 'div', class_=cls)
+        if details['description']:
+            break
+    else:
+        details['description'] = 'N/A'
+
+    # Extract version with specified class
+    version_classes = [
+        'N3EXSc c011070 c011077 c011069'
+    ]
+    for cls in version_classes:
+        details['version'] = self._extract_text(soup, 'div', class_=cls)
+        if details['version']:
+            break
+    else:
+        details['version'] = 'N/A'
+
+    # Extract total reviews with specified class
+    review_classes = [
+        'PmmSTd c011089 c011502'
+    ]
+    for cls in review_classes:
+        details['total_reviews'] = self._extract_number(soup, 'span', class_=cls)
+        if details['total_reviews']:
+            break
+    else:
+        details['total_reviews'] = 0
+
+    # Extract stars with specified class
+    star_classes = [
+        'Vq0ZA c011088 c011685'
+    ]
+    for cls in star_classes:
+        details['stars'] = self._extract_rating(soup, 'span', class_=cls)
+        if details['stars']:
+            break
+    else:
+        details['stars'] = 0.0
+
+    return details
 
     def _extract_text(self, soup, tag, **kwargs):
         element = soup.find(tag, **kwargs)
