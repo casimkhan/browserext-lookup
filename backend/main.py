@@ -338,7 +338,6 @@ class ExtensionAnalyzer:
                 f"Extension Name: {data['store_details']['name']}\n"
                 f"Description: {data['store_details']['description']}\n"
                 f"Version: {data['store_details']['version']}\n"
-                f"Developer: {data['store_details']['developer']}\n"
                 f"Rating: {data['store_details']['stars']} stars from {data['store_details']['total_reviews']} reviews\n\n"
                 f"Security Analysis:\n"
                 f"- Permissions required: {', '.join(data['analysis_results']['permissions'])}\n"
