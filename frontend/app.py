@@ -82,7 +82,7 @@ def display_security_analysis(result: Dict[str, Any]):
     with st.expander("🔍 Security Analysis", expanded=True):
         # Display Manifest Content
         st.write("**📜 Manifest Content:**")
-        if manifest := result['analysis_results'].get('manifest_content'):
+        if manifest := result['analysis_results'].get('manifest'):
             st.json(manifest)
         else:
             st.info("No manifest content available")
