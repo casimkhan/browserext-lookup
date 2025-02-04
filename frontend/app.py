@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 BACKEND_URL = "https://browserext-lookup.onrender.com"
-REQUEST_TIMEOUT = 30  # seconds
+REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
 
 class APIClient:
@@ -56,110 +56,240 @@ class APIClient:
             raise
 
 def is_valid_extension_id(extension_id: str) -> bool:
-    """Validate extension ID format with improved pattern matching."""
     return bool(re.fullmatch(r"[a-z]{32}", extension_id.lower()))
 
+def get_risk_color(score: float) -> str:
+    if score <= 2:
+        return "green"
+    elif score <= 3.5:
+        return "orange"
+    return "red"
+
 def display_extension_details(result: Dict[str, Any]):
-    """Display extension details in a structured format."""
-    with st.container():
-        st.subheader("🛠️ Extension Details")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Name", result['extension_details'].get('name', 'N/A'))
-            st.metric("Developer", result['extension_details'].get('developer', 'N/A'))
-        
-        with col2:
-            st.metric("Version", result['extension_details'].get('version', 'N/A'))
-            st.metric("Last Updated", result['extension_details'].get('last_updated', 'N/A'))
-            
-        with col3:
-            st.metric("Total Reviews", result['extension_details'].get('total_reviews', 'N/A'))
-            st.metric("Rating", f"{result['extension_details'].get('stars', 0.0)} ⭐")
+    """Display extension details with enhanced visual elements."""
+    st.markdown("""
+        <div style='background-color: rgba(255, 255, 255, 0.1); 
+                    padding: 20px; 
+                    border-radius: 10px; 
+                    margin-bottom: 20px;'>
+    """, unsafe_allow_html=True)
+    
+    ext_details = result['extension_details']
+    
+    # Header with extension name and developer
+    st.markdown(f"### {ext_details.get('name', 'Unknown Extension')}")
+    st.markdown(f"*by {ext_details.get('developer', 'Unknown Developer')}*")
+    
+    # Key metrics in a modern grid
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown("**Version**")
+        st.markdown(f"`{ext_details.get('version', 'N/A')}`")
+    
+    with col2:
+        st.markdown("**Rating**")
+        stars = ext_details.get('stars', 0.0)
+        st.markdown(f"{'⭐' * int(stars)} ({stars:.1f})")
+    
+    with col3:
+        st.markdown("**Reviews**")
+        st.markdown(f"{ext_details.get('total_reviews', 0):,}")
+    
+    with col4:
+        st.markdown("**Last Updated**")
+        st.markdown(f"{ext_details.get('last_updated', 'N/A')}")
 
 def display_security_analysis(result: Dict[str, Any]):
-    """Display security analysis results."""
-    with st.expander("🔍 Security Analysis", expanded=True):
-        # Display Manifest Content
-        st.write("**📜 Manifest Content:**")
+    """Display enhanced security analysis with visual improvements."""
+    st.markdown("## 🛡️ Security Analysis")
+    
+    # Risk Score with visual indicator
+    risk_score = result['analysis_results'].get('permissions_score', 0)
+    risk_color = get_risk_color(risk_score)
+    
+    st.markdown(f"""
+        <div style='background-color: rgba(255, 255, 255, 0.1); 
+                    padding: 20px; 
+                    border-radius: 10px; 
+                    margin-bottom: 20px;'>
+            <h3 style='color: {risk_color}'>Risk Score: {risk_score}/5.0</h3>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Permissions Analysis with categorization
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 🔑 Required Permissions")
+        permissions = result['analysis_results'].get('permissions', [])
+        if permissions:
+            for perm in permissions:
+                st.markdown(f"""
+                    <div style='background-color: rgba(255, 255, 255, 0.05); 
+                              padding: 10px; 
+                              border-radius: 5px; 
+                              margin-bottom: 5px;'>
+                        🔐 {perm}
+                    </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No special permissions required")
+    
+    with col2:
+        st.markdown("### 🌐 Third-Party Dependencies")
+        deps = result['analysis_results'].get('third_party_dependencies', [])
+        if deps:
+            for dep in deps:
+                st.markdown(f"""
+                    <div style='background-color: rgba(255, 255, 255, 0.05); 
+                              padding: 10px; 
+                              border-radius: 5px; 
+                              margin-bottom: 5px;'>
+                        🔗 {dep}
+                    </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No third-party domains detected")
+    
+    # Manifest Viewer
+    with st.expander("📜 View Manifest", expanded=False):
         if manifest := result['analysis_results'].get('manifest'):
             st.json(manifest)
         else:
             st.info("No manifest content available")
 
-        # Display Risk Score Breakdown
-        st.write("**🛡️ Risk Analysis:**")
-        risk_score = result['analysis_results'].get('permissions_score', 0)
-        st.metric("Security Risk Score", f"{risk_score}/5.0", 
-                help="Score based on permissions and sensitive API usage (higher = more risky)")
-
-        # Display Third-Party Dependencies
-        st.write("**🌐 Third-Party Dependencies:**")
-        if deps := result['analysis_results'].get('third_party_dependencies', []):
-            for dep in deps:
-                st.write(f"- `{dep}`")
-        else:
-            st.info("No third-party domains detected")
-
-        # Display Permissions Analysis
-        st.write("**🔑 Required Permissions:**")
-        if perms := result['analysis_results'].get('permissions', []):
-            for perm in perms:
-                st.write(f"- `{perm}`")
-        else:
-            st.info("No special permissions required")
+def display_ai_summary(summary: str):
+    """Display AI-generated summary with enhanced styling."""
+    st.markdown("""
+        <div style='background-color: rgba(0, 100, 255, 0.1); 
+                    padding: 20px; 
+                    border-radius: 10px; 
+                    margin-top: 20px;'>
+            <h3>🤖 AI Security Analysis</h3>
+    """, unsafe_allow_html=True)
+    
+    st.markdown(f"""
+        <div style='background-color: rgba(255, 255, 255, 0.05); 
+                    padding: 15px; 
+                    border-radius: 5px;'>
+            {summary}
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
 def main():
     st.set_page_config(
         page_title="BrowserExt Lookup",
         page_icon="🔍",
-        layout="wide"
+        layout="wide",
+        initial_sidebar_state="collapsed"
     )
     
-    # Custom CSS styling
+    # Modern UI styling
     st.markdown("""
-    <style>
-        .metric {border: 1px solid #2e5266; border-radius: 5px; padding: 10px;}
-        .stJson {max-height: 300px; overflow-y: auto; border: 1px solid #2e5266;}
-        .st-bq {border-color: #2e5266;}
-    </style>
+        <style>
+            .stApp {
+                background-color: #1E1E1E;
+                color: #FFFFFF;
+            }
+            .stButton>button {
+                background-color: #2196F3;
+                color: white;
+                border-radius: 20px;
+                padding: 10px 25px;
+                border: none;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+            .stTextInput>div>div>input {
+                background-color: rgba(255, 255, 255, 0.1);
+                color: white;
+                border-radius: 10px;
+            }
+            .stSelectbox>div>div>select {
+                background-color: rgba(255, 255, 255, 0.1);
+                color: white;
+                border-radius: 10px;
+            }
+            .stJson {
+                background-color: rgba(255, 255, 255, 0.05) !important;
+                border-radius: 10px;
+                padding: 10px;
+            }
+            .stExpander {
+                background-color: rgba(255, 255, 255, 0.05);
+                border-radius: 10px;
+            }
+        </style>
     """, unsafe_allow_html=True)
     
-    st.title("🔍 BrowserExt Lookup")
-    st.write("Analyze browser extensions using their ID.")
+    # Header with animation
+    st.markdown("""
+        <h1 style='text-align: center; 
+                   color: #2196F3; 
+                   margin-bottom: 30px;
+                   animation: glow 2s ease-in-out infinite alternate;'>
+            🔍 BrowserExt Lookup
+        </h1>
+        <style>
+            @keyframes glow {
+                from { text-shadow: 0 0 10px #2196F3; }
+                to { text-shadow: 0 0 20px #2196F3; }
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # Informative subheader
+    st.markdown("""
+        <p style='text-align: center; 
+                  color: #BBBBBB; 
+                  margin-bottom: 30px;'>
+            Analyze browser extensions for security risks and permissions using AI-powered insights
+        </p>
+    """, unsafe_allow_html=True)
     
     # Session state initialization
     if 'api_client' not in st.session_state:
         st.session_state.api_client = APIClient()
     
-    # Input form
+    # Modern input form
     with st.form("extension_analysis_form"):
-        extension_id = st.text_input("Enter Extension ID:").strip()
-        store_name = st.selectbox("Select Store:", ["Chrome", "Edge"])
-        submitted = st.form_submit_button("Analyze")
+        col1, col2 = st.columns([3, 1])
         
+        with col1:
+            extension_id = st.text_input(
+                "Extension ID",
+                placeholder="Enter 32-character extension ID..."
+            ).strip()
+        
+        with col2:
+            store_name = st.selectbox(
+                "Store",
+                ["Chrome", "Edge"],
+                index=0
+            )
+        
+        submitted = st.form_submit_button("🔍 Analyze Extension")
+    
     if submitted:
         if not extension_id:
-            st.error("⚠️ Please enter an Extension ID.")
+            st.error("⚠️ Please enter an Extension ID")
             return
-            
+        
         if not is_valid_extension_id(extension_id):
-            st.error("⚠️ Invalid Extension ID. It should be a 32-character lowercase alphanumeric string.")
+            st.error("⚠️ Invalid Extension ID format. Please enter a 32-character lowercase alphanumeric string.")
             return
-            
-        with st.spinner("Analyzing extension..."):
+        
+        with st.spinner("🔍 Analyzing extension security..."):
             try:
                 payload = {
                     "extension_id": extension_id.lower(),
                     "store_name": store_name.lower()
                 }
                 
-                # Log the request payload
                 logger.info(f"Frontend request payload: {payload}")
-                
                 result = st.session_state.api_client.analyze_extension(payload)
-                
-                # Log the response
                 logger.info(f"Frontend response: {result}")
                 
                 st.success("✅ Analysis complete!")
@@ -167,12 +297,9 @@ def main():
                 if result.get("extension_details"):
                     display_extension_details(result)
                     display_security_analysis(result)
+                    display_ai_summary(result.get("summary", "No AI analysis available."))
                 else:
                     st.error("⚠️ Extension details not found in the response.")
-                
-                # Display AI Generated Summary
-                st.subheader("📢 Security Summary")
-                st.info(result.get("summary", "No summary provided."))
                 
             except Exception as e:
                 st.error(f"⚠️ {str(e)}")
