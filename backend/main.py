@@ -295,9 +295,18 @@ class ExtensionAnalyzer:
                     logger.info("Found manifest.json in ZIP file")
                     with zip_ref.open('manifest.json') as manifest_file:
                         manifest_content = manifest_file.read()
-                        logger.info(f"Raw manifest content: {manifest_content}")
+                        logger.info(f"Raw manifest content (first 100 bytes): {manifest_content[:100]}")
 
                         try:
+                            # Decode the manifest content if it's in bytes
+                            if isinstance(manifest_content, bytes):
+                                try:
+                                    manifest_content = manifest_content.decode('utf-8')
+                                except UnicodeDecodeError:
+                                    # Fallback to UTF-16 if UTF-8 fails
+                                    manifest_content = manifest_content.decode('utf-16')
+
+                            # Parse the manifest content as JSON
                             manifest_json = json.loads(manifest_content)
                             logger.info(f"Parsed manifest.json: {manifest_json}")
                             analysis_results['manifest'] = manifest_json
@@ -305,6 +314,9 @@ class ExtensionAnalyzer:
                         except json.JSONDecodeError as e:
                             logger.error(f"Failed to parse manifest.json: {str(e)}")
                             raise HTTPException(status_code=500, detail="Invalid manifest.json format")
+                        except UnicodeDecodeError as e:
+                            logger.error(f"Failed to decode manifest.json: {str(e)}")
+                            raise HTTPException(status_code=500, detail="Invalid manifest.json encoding")
                 else:
                     logger.warning("No manifest.json found in extension")
                     raise HTTPException(status_code=404, detail="manifest.json not found in extension")
@@ -318,7 +330,7 @@ class ExtensionAnalyzer:
             logger.error("Invalid ZIP archive after CRX processing")
             raise HTTPException(status_code=500, detail="Invalid extension package")
         except Exception as e:
-            logger.error(f"Analysis failed: {str(e)}")
+            logger.error(f"Analysis failed: {str(e)}", exc_info=True)  # Log full exception details
             raise HTTPException(status_code=500, detail="Extension analysis failed")
 
         return analysis_results
