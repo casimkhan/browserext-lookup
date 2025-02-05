@@ -16,7 +16,44 @@ REQUEST_TIMEOUT = 30
 MAX_RETRIES = 3
 
 class APIClient:
-    # ... (keep the existing implementation)
+    def __init__(self):
+        self.session = requests.Session()
+        retry_strategy = Retry(
+            total=MAX_RETRIES,
+            backoff_factor=1,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        self.session.mount("https://", HTTPAdapter(max_retries=retry_strategy))
+    
+    def analyze_extension(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "BrowserExtLookup/1.0"
+        }
+        
+        try:
+            response = self.session.post(
+                f"{BACKEND_URL}/analyze",
+                json=payload,
+                headers=headers,
+                timeout=REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.Timeout:
+            raise Exception("Request timed out. Please try again.")
+        except requests.exceptions.HTTPError as e:
+            error_mapping = {
+                400: "Invalid request: Please check the Extension ID.",
+                404: "Extension not found. Please verify the ID and store selection.",
+                429: "Too many requests. Please try again later.",
+                500: "Server error: Please try again later."
+            }
+            status_code = e.response.status_code
+            raise Exception(error_mapping.get(status_code, f"Error: {str(e)}"))
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
+            raise
 
 def is_valid_extension_id(extension_id: str) -> bool:
     return bool(re.fullmatch(r"[a-z]{32}", extension_id.lower()))
