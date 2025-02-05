@@ -121,7 +121,6 @@ class ExtensionAnalyzer:
         details['stars'] = self._extract_rating(soup, 'span', class_=['Vq0ZA', 'c011088', 'c011685']) or 0.0
         return details
 
-
     def _extract_text(self, soup, tag, **kwargs):
         element = soup.find(tag, **kwargs)
         return element.text.strip() if element else None
@@ -155,7 +154,7 @@ class ExtensionAnalyzer:
             zip_path, file_size, file_hash = await self._download_crx()
             analysis_results = await self._analyze_crx(zip_path)
 
-            # Get AI summary from OpenAI based on crawled data
+            # Get AI summary from OpenAI based on crawled data and manifest
             ai_summary = await self._get_openai_summary({
                 "store_details": store_details,
                 "analysis_results": analysis_results
@@ -344,8 +343,9 @@ class ExtensionAnalyzer:
         return score
 
     async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
-        """Get AI summary using OpenAI"""
+        """Get AI summary using OpenAI with a focus on security analysis of the manifest."""
         try:
+            # Prepare the analysis text with manifest details
             analysis_text = (
                 f"Extension Name: {data['store_details']['name']}\n"
                 f"Description: {data['store_details']['description']}\n"
@@ -354,25 +354,37 @@ class ExtensionAnalyzer:
                 f"Security Analysis:\n"
                 f"- Permissions required: {', '.join(data['analysis_results']['permissions'])}\n"
                 f"- Risk score: {data['analysis_results']['permissions_score']}\n"
-                f"- Third-party domains: {', '.join(data['analysis_results']['third_party_dependencies'])}\n"
+                f"- Third-party domains: {', '.join(data['analysis_results']['third_party_dependencies'])}\n\n"
+                f"Manifest Details:\n"
+                f"{json.dumps(data['analysis_results']['manifest'], indent=2)}"
             )
 
+            # Prepare the prompt for OpenAI
+            prompt = (
+                "You are a security expert analyzing a browser extension. "
+                "Review the following details and provide a security-focused summary:\n\n"
+                f"{analysis_text}\n\n"
+                "Focus on potential security risks, privacy concerns, and any unusual or dangerous permissions. "
+                "Provide recommendations for users and developers if necessary."
+            )
+
+            # Call OpenAI API
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that summarizes browser extension details and security analysis."},
-                    {"role": "user", "content": f"Summarize the following browser extension details and security analysis:\n\n{analysis_text}"}
+                    {"role": "system", "content": "You are a security expert that analyzes browser extensions."},
+                    {"role": "user", "content": prompt}
                 ],
-                max_tokens=300,
-                temperature=0.7
+                max_tokens=400,  # Increase tokens for more detailed analysis
+                temperature=0.5  # Lower temperature for more focused and factual responses
             )
 
             summary = response.choices[0].message.content
-            return summary if summary else "No summary available."
+            return summary if summary else "No security summary available."
 
         except Exception as e:
             logger.error(f"OpenAI API call failed: {str(e)}")
-            return "Failed to generate AI summary."
+            return "Failed to generate security summary."
 
     async def _cache_results(self, result: Dict[str, Any]):
         """Cache the analysis results in the database"""
