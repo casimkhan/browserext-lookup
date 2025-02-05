@@ -66,7 +66,6 @@ def get_risk_color(score: float) -> str:
     return "red"
 
 def display_extension_details(result: Dict[str, Any]):
-    """Display extension details with enhanced visual elements."""
     st.markdown("""
         <div style='background-color: rgba(255, 255, 255, 0.1); 
                     padding: 20px; 
@@ -76,11 +75,9 @@ def display_extension_details(result: Dict[str, Any]):
     
     ext_details = result['extension_details']
     
-    # Header with extension name and developer
     st.markdown(f"### {ext_details.get('name', 'Unknown Extension')}")
     st.markdown(f"*by {ext_details.get('developer', 'Unknown Developer')}*")
     
-    # Key metrics in a modern grid
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -101,10 +98,8 @@ def display_extension_details(result: Dict[str, Any]):
         st.markdown(f"{ext_details.get('last_updated', 'N/A')}")
 
 def display_security_analysis(result: Dict[str, Any]):
-    """Display enhanced security analysis with visual improvements."""
     st.markdown("## 🛡️ Security Analysis")
     
-    # Risk Score with visual indicator
     risk_score = result['analysis_results'].get('permissions_score', 0)
     risk_color = get_risk_color(risk_score)
     
@@ -117,7 +112,6 @@ def display_security_analysis(result: Dict[str, Any]):
         </div>
     """, unsafe_allow_html=True)
     
-    # Permissions Analysis with categorization
     col1, col2 = st.columns(2)
     
     with col1:
@@ -152,7 +146,6 @@ def display_security_analysis(result: Dict[str, Any]):
         else:
             st.info("No third-party domains detected")
     
-    # Manifest Viewer
     with st.expander("📜 View Manifest", expanded=False):
         if manifest := result['analysis_results'].get('manifest'):
             st.json(manifest)
@@ -160,7 +153,6 @@ def display_security_analysis(result: Dict[str, Any]):
             st.info("No manifest content available")
 
 def display_ai_summary(summary: str):
-    """Display AI-generated summary with enhanced styling."""
     st.markdown("""
         <div style='background-color: rgba(0, 100, 255, 0.1); 
                     padding: 20px; 
@@ -194,23 +186,40 @@ def main():
                 background-color: #1E1E1E;
                 color: #FFFFFF;
             }
+            /* Input fields styling */
+            .stTextInput>div>div>input {
+                background-color: rgba(0, 255, 0, 0.1) !important;
+                color: white !important;
+                border-radius: 10px;
+                border: 1px solid rgba(0, 255, 0, 0.2) !important;
+            }
+            .stTextInput>div>div>input::placeholder {
+                color: rgba(255, 255, 255, 0.5) !important;
+            }
+            .stTextInput>div>div>input:focus {
+                border-color: rgba(0, 255, 0, 0.3) !important;
+                box-shadow: 0 0 0 1px rgba(0, 255, 0, 0.2) !important;
+            }
+            /* Store selector styling */
+            .stSelectbox>div>div>select {
+                background-color: rgba(0, 255, 0, 0.1) !important;
+                color: white !important;
+                border-radius: 10px;
+                border: 1px solid rgba(0, 255, 0, 0.2) !important;
+            }
+            /* Analysis button styling */
             .stButton>button {
-                background-color: #2196F3;
-                color: white;
+                background-color: #2196F3 !important;
+                color: white !important;
                 border-radius: 20px;
                 padding: 10px 25px;
-                border: none;
+                border: none !important;
                 box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                transition: all 0.3s ease;
             }
-            .stTextInput>div>div>input {
-                background-color: rgba(255, 255, 255, 0.1);
-                color: white;
-                border-radius: 10px;
-            }
-            .stSelectbox>div>div>select {
-                background-color: rgba(255, 255, 255, 0.1);
-                color: white;
-                border-radius: 10px;
+            .stButton>button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 8px rgba(0, 0, 0, 0.2);
             }
             .stJson {
                 background-color: rgba(255, 255, 255, 0.05) !important;
@@ -221,18 +230,6 @@ def main():
                 background-color: rgba(255, 255, 255, 0.05);
                 border-radius: 10px;
             }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    # Header with animation
-    st.markdown("""
-        <h1 style='text-align: center; 
-                   color: #2196F3; 
-                   margin-bottom: 30px;
-                   animation: glow 2s ease-in-out infinite alternate;'>
-            🔍 BrowserExt Lookup
-        </h1>
-        <style>
             @keyframes glow {
                 from { text-shadow: 0 0 10px #2196F3; }
                 to { text-shadow: 0 0 20px #2196F3; }
@@ -240,7 +237,15 @@ def main():
         </style>
     """, unsafe_allow_html=True)
     
-    # Informative subheader
+    st.markdown("""
+        <h1 style='text-align: center; 
+                   color: #2196F3; 
+                   margin-bottom: 30px;
+                   animation: glow 2s ease-in-out infinite alternate;'>
+            🔍 BrowserExt Lookup
+        </h1>
+    """, unsafe_allow_html=True)
+    
     st.markdown("""
         <p style='text-align: center; 
                   color: #BBBBBB; 
@@ -249,11 +254,9 @@ def main():
         </p>
     """, unsafe_allow_html=True)
     
-    # Session state initialization
     if 'api_client' not in st.session_state:
         st.session_state.api_client = APIClient()
     
-    # Modern input form
     with st.form("extension_analysis_form"):
         col1, col2 = st.columns([3, 1])
         
