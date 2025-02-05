@@ -189,7 +189,7 @@ def main():
             /* Input fields styling */
             .stTextInput>div>div>input {
                 background-color: rgba(0, 255, 0, 0.1) !important;
-                color: white !important;
+                color: black !important;
                 border-radius: 10px;
                 border: 1px solid rgba(0, 255, 0, 0.2) !important;
             }
@@ -210,7 +210,7 @@ def main():
             /* Analysis button styling */
             .stButton>button {
                 background-color: #2196F3 !important;
-                color: white !important;
+                color: black !important;
                 border-radius: 20px;
                 padding: 10px 25px;
                 border: none !important;
@@ -233,6 +233,10 @@ def main():
             @keyframes glow {
                 from { text-shadow: 0 0 10px #2196F3; }
                 to { text-shadow: 0 0 20px #2196F3; }
+            }
+            /* Extension ID label styling */
+            .stTextInput>label {
+                color: white !important;  /* Changed to white */
             }
         </style>
     """, unsafe_allow_html=True)
