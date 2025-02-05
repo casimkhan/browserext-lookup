@@ -115,15 +115,16 @@ Risk Score: {risk_score}/5.0
     col1, col2 = st.columns(2)
     
     with col1:
+        permissions_content = ''.join([f'
+{perm}
+' for perm in result['analysis_results'].get('permissions', [])])
         st.markdown(f"""
             
 
                 
 🔑 Required Permissions
 
-                {''.join([f'
-{perm}
-' for perm in result['analysis_results'].get('permissions', [])]) or '
+                {permissions_content if permissions_content else '
 No special permissions required.
 
 '}
@@ -132,15 +133,16 @@ No special permissions required.
         """, unsafe_allow_html=True)
     
     with col2:
+        dependencies_content = ''.join([f'
+{dep}
+' for dep in result['analysis_results'].get('third_party_dependencies', [])])
         st.markdown(f"""
             
 
                 
 🌐 Third-Party Dependencies
 
-                {''.join([f'
-{dep}
-' for dep in result['analysis_results'].get('third_party_dependencies', [])]) or '
+                {dependencies_content if dependencies_content else '
 No third-party domains detected.
 
 '}
@@ -148,11 +150,12 @@ No third-party domains detected.
 
         """, unsafe_allow_html=True)
     
-    st.markdown("""
+    manifest = result['analysis_results'].get('manifest', 'No manifest content available')
+    st.markdown(f"""
     
 📜 View Manifest
 
-    """.format(result['analysis_results'].get('manifest', 'No manifest content available')), unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
 def display_ai_summary(summary: str):
     st.markdown(f"""
