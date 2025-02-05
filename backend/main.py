@@ -361,21 +361,21 @@ class ExtensionAnalyzer:
 
             # Prepare the prompt for OpenAI
             prompt = (
-                "You are a security expert analyzing a browser extension. "
+                "You are an expert in browser extension security. Analyze the following Chrome/Edge extension's manifest.json and store details for potential security risks and privacy concerns. "
                 "Review the following details and provide a security-focused summary:\n\n"
                 f"{analysis_text}\n\n"
                 "Focus on potential security risks, privacy concerns, and any unusual or dangerous permissions. "
-                "Provide recommendations for users and developers if necessary."
+                "Provide a concise security-focused summary highlighting risky permissions, potential data access concerns, and overall trustworthiness."
             )
 
             # Call OpenAI API
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a security expert that analyzes browser extensions."},
+                    {"role": "system", "content": "You are a security analyst specializing in browser extensions."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=400,  # Increase tokens for more detailed analysis
+                max_tokens=500,  # Increase tokens for more detailed analysis
                 temperature=0.5  # Lower temperature for more focused and factual responses
             )
 
