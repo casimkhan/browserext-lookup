@@ -73,10 +73,11 @@ def display_extension_details(result: Dict[str, Any]):
                     margin-bottom: 20px;'>
     """, unsafe_allow_html=True)
     
-    ext_details = result['extension_details']
+    ext_details = result.get('extension_details', {})
     
     st.markdown(f"### {ext_details.get('name', 'Unknown Extension')}")
     
+    # Ensure columns are defined and used correctly
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -92,11 +93,10 @@ def display_extension_details(result: Dict[str, Any]):
         st.markdown("**Reviews**")
         st.markdown(f"{ext_details.get('total_reviews', 0):,}")
     
-with col4:
-    st.markdown("**Last Updated**")
-    # Try to get from extension_details first; if not available, fallback to metadata.analyzed_at.
-    last_updated = ext_details.get('last_updated') or result.get('metadata', {}).get('analyzed_at', 'N/A')
-    st.markdown(f"{last_updated}")
+    with col4:
+        st.markdown("**Last Updated**")
+        last_updated = ext_details.get('last_updated') or result.get('metadata', {}).get('analyzed_at', 'N/A')
+        st.markdown(f"{last_updated}")
 
 def display_security_analysis(result: Dict[str, Any]):
     st.markdown("## 🛡️ Security Analysis")
@@ -165,9 +165,7 @@ def display_ai_summary(summary: str):
     st.markdown(f"""
         <div style='background-color: rgba(255, 255, 255, 0.05); 
                     padding: 15px; 
-                    border-radius: 5px;'>
-            {summary}
-        </div>
+                    border-radius: 5px;'>{summary}</div>
     """, unsafe_allow_html=True)
     
     st.markdown("</div>", unsafe_allow_html=True)
@@ -235,83 +233,29 @@ def main():
                 from { text-shadow: 0 0 10px #2196F3; }
                 to { text-shadow: 0 0 20px #2196F3; }
             }
-            /* Extension ID label styling */
+            /* Extension ID label glow animation */
             .stTextInput>label {
-                color: black !important;  /* Changed to white */
+                font-weight: bold;
+                animation: glow 1.5s infinite alternate;
             }
         </style>
     """, unsafe_allow_html=True)
     
-    st.markdown("""
-        <h1 style='text-align: center; 
-                   color: #2196F3; 
-                   margin-bottom: 30px;
-                   animation: glow 2s ease-in-out infinite alternate;'>
-            🔍 BrowserExt Lookup
-        </h1>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-        <p style='text-align: center; 
-                  color: #BBBBBB; 
-                  margin-bottom: 30px;'>
-            Analyze browser extensions for security risks and permissions using AI-powered insights
-        </p>
-    """, unsafe_allow_html=True)
-    
-    if 'api_client' not in st.session_state:
-        st.session_state.api_client = APIClient()
-    
-    with st.form("extension_analysis_form"):
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            extension_id = st.text_input(
-                "Extension ID",
-                placeholder="Enter 32-character extension ID..."
-            ).strip()
-        
-        with col2:
-            store_name = st.selectbox(
-                "Store",
-                ["Chrome", "Edge"],
-                index=0
-            )
-        
-        submitted = st.form_submit_button("🔍 Analyze Extension")
-    
-    if submitted:
-        if not extension_id:
-            st.error("⚠️ Please enter an Extension ID")
-            return
-        
-        if not is_valid_extension_id(extension_id):
-            st.error("⚠️ Invalid Extension ID format. Please enter a 32-character lowercase alphanumeric string.")
-            return
-        
-        with st.spinner("🔍 Analyzing extension security..."):
+    # Create input fields
+    st.title("🔍 Browser Extension Lookup")
+    extension_id = st.text_input("Enter the Browser Extension ID", max_chars=32, key="extension_id")
+    store = st.selectbox("Select the Store", ["Chrome Web Store", "Firefox Add-ons", "Edge Add-ons"])
+    if st.button("Analyze"):
+        if extension_id and is_valid_extension_id(extension_id):
+            st.info(f"Analyzing extension {extension_id} from {store}...")
+            payload = {"extension_id": extension_id, "store": store}
+            client = APIClient()
             try:
-                payload = {
-                    "extension_id": extension_id.lower(),
-                    "store_name": store_name.lower()
-                }
-                
-                logger.info(f"Frontend request payload: {payload}")
-                result = st.session_state.api_client.analyze_extension(payload)
-                logger.info(f"Frontend response: {result}")
-                
-                st.success("✅ Analysis complete!")
-                
-                if result.get("extension_details"):
-                    display_extension_details(result)
-                    display_security_analysis(result)
-                    display_ai_summary(result.get("summary", "No AI analysis available."))
-                else:
-                    st.error("⚠️ Extension details not found in the response.")
-                
+                result = client.analyze_extension(payload)
+                display_extension_details(result)
+                display_security_analysis(result)
+                display_ai_summary(result.get("ai_summary", "No AI summary available."))
             except Exception as e:
-                st.error(f"⚠️ {str(e)}")
-                logger.exception("Analysis failed")
-
-if __name__ == "__main__":
-    main()
+                st.error(f"Error: {str(e)}")
+        else:
+            st.error("Invalid Extension ID. Please try again.")
