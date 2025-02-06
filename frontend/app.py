@@ -76,7 +76,6 @@ def display_extension_details(result: Dict[str, Any]):
     ext_details = result['extension_details']
     
     st.markdown(f"### {ext_details.get('name', 'Unknown Extension')}")
-    st.markdown(f"*by {ext_details.get('developer', 'Unknown Developer')}*")
     
     col1, col2, col3, col4 = st.columns(4)
     
