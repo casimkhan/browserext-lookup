@@ -92,9 +92,11 @@ def display_extension_details(result: Dict[str, Any]):
         st.markdown("**Reviews**")
         st.markdown(f"{ext_details.get('total_reviews', 0):,}")
     
-    with col4:
-        st.markdown("**Last Updated**")
-        st.markdown(f"{ext_details.get('last_updated', 'N/A')}")
+with col4:
+    st.markdown("**Last Updated**")
+    # Try to get from extension_details first; if not available, fallback to metadata.analyzed_at.
+    last_updated = ext_details.get('last_updated') or result.get('metadata', {}).get('analyzed_at', 'N/A')
+    st.markdown(f"{last_updated}")
 
 def display_security_analysis(result: Dict[str, Any]):
     st.markdown("## 🛡️ Security Analysis")
