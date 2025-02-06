@@ -31,7 +31,7 @@ NACL_ARCH = "x86-64"  # Determine based on your target architecture
 
 class DatabaseManager:
     def __init__(self):
-        self.db_path = "crx_analysis.db"
+        self.db_path = "/var/lib/sqlite/crx_analysis.db"
 
     @contextmanager
     def get_connection(self):
