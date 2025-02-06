@@ -44,19 +44,14 @@ class DatabaseManager:
 
     def initialize(self):
         with self.get_connection() as conn:
+            # Using a full JSON blob approach to cache the complete analysis result
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS extensions (
-                    id TEXT PRIMARY KEY,
+                    id TEXT,
                     store_name TEXT,
-                    name TEXT,
-                    description TEXT,
-                    version TEXT,
-                    total_reviews INTEGER,
-                    stars FLOAT,
-                    analysis_results TEXT,
-                    manifest TEXT,
-                    ai_summary TEXT,
-                    last_updated TIMESTAMP
+                    result_blob TEXT,
+                    last_updated TIMESTAMP,
+                    PRIMARY KEY (id, store_name)
                 )
             """)
             conn.commit()
@@ -78,17 +73,16 @@ class ExtensionAnalyzer:
         self.db = DatabaseManager()
 
     async def _get_cached_analysis(self):
-        """Retrieve cached analysis result from the database if available."""
+        """Retrieve cached full analysis result from the database if available."""
         with self.db.get_connection() as conn:
             cursor = conn.execute(
-                "SELECT analysis_results FROM extensions WHERE id = ? AND store_name = ?",
+                "SELECT result_blob FROM extensions WHERE id = ? AND store_name = ?",
                 (self.extension_id, self.store_name)
             )
             row = cursor.fetchone()
-
-            if row:
-                return json.loads(row["analysis_results"])  # Safely convert JSON string to dictionary
-
+            if row and row["result_blob"]:
+                logger.info("Returning cached analysis result")
+                return json.loads(row["result_blob"])
         return None
 
     async def fetch_store_details(self) -> Dict[str, Any]:
@@ -160,7 +154,7 @@ class ExtensionAnalyzer:
                 "analysis_results": analysis_results
             })
 
-            # Combine results
+            # Combine results into one response object
             result = {
                 "extension_details": store_details,
                 "analysis_results": analysis_results,
@@ -176,10 +170,10 @@ class ExtensionAnalyzer:
             # Log the response
             logger.info(f"Backend response: {result}")
 
-            # Cache results
+            # Cache the full result as a JSON blob
             await self._cache_results(result)
 
-            # Cleanup
+            # Cleanup downloaded file
             if os.path.exists(zip_path):
                 os.remove(zip_path)
 
@@ -329,14 +323,20 @@ class ExtensionAnalyzer:
             logger.error("Invalid ZIP archive after CRX processing")
             raise HTTPException(status_code=500, detail="Invalid extension package")
         except Exception as e:
-            logger.error(f"Analysis failed: {str(e)}", exc_info=True)  # Log full exception details
+            logger.error(f"Analysis failed: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail="Extension analysis failed")
 
         return analysis_results
 
     def _calculate_permission_score(self, permissions):
         score = 0.0
-        risky_permissions = ['activeTab', 'background', 'bookmarks', 'browsingData', 'clipboardRead', 'clipboardWrite', 'contentSettings', 'cookies', 'debugger', 'downloads', 'geolocation', 'history', 'management', 'nativeMessaging', 'notifications', 'privacy', 'proxy', 'storage', 'tabs', 'unlimitedStorage', 'webNavigation', 'webRequest', 'webRequestBlocking']
+        risky_permissions = [
+            'activeTab', 'background', 'bookmarks', 'browsingData', 'clipboardRead',
+            'clipboardWrite', 'contentSettings', 'cookies', 'debugger', 'downloads',
+            'geolocation', 'history', 'management', 'nativeMessaging', 'notifications',
+            'privacy', 'proxy', 'storage', 'tabs', 'unlimitedStorage', 'webNavigation',
+            'webRequest', 'webRequestBlocking'
+        ]
         for perm in permissions:
             if perm in risky_permissions:
                 score += 0.5
@@ -345,7 +345,6 @@ class ExtensionAnalyzer:
     async def _get_openai_summary(self, data: Dict[str, Any]) -> str:
         """Get AI summary using OpenAI with a focus on security analysis of the manifest."""
         try:
-            # Prepare the analysis text with manifest details
             analysis_text = (
                 f"Extension Name: {data['store_details']['name']}\n"
                 f"Description: {data['store_details']['description']}\n"
@@ -359,7 +358,6 @@ class ExtensionAnalyzer:
                 f"{json.dumps(data['analysis_results']['manifest'], indent=2)}"
             )
 
-            # Prepare the prompt for OpenAI
             prompt = (
                 "You are an expert in browser extension security. Analyze the following Chrome/Edge extension's manifest.json and store details for potential security risks and privacy concerns. "
                 "Review the following details and provide a security-focused summary:\n\n"
@@ -368,15 +366,14 @@ class ExtensionAnalyzer:
                 "Provide a concise security-focused summary highlighting risky permissions, potential data access concerns, and overall trustworthiness."
             )
 
-            # Call OpenAI API
             response = client.chat.completions.create(
                 model="gpt-4-turbo",
                 messages=[
                     {"role": "system", "content": "You are a security analyst specializing in browser extensions."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=500,  # Increase tokens for more detailed analysis
-                temperature=0.5  # Lower temperature for more focused and factual responses
+                max_tokens=500,
+                temperature=0.5
             )
 
             summary = response.choices[0].message.content
@@ -387,26 +384,18 @@ class ExtensionAnalyzer:
             return "Failed to generate security summary."
 
     async def _cache_results(self, result: Dict[str, Any]):
-        """Cache the analysis results in the database"""
+        """Cache the full analysis result as a JSON blob in the database"""
+        result_blob = json.dumps(result)
         with self.db.get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO extensions (
-                    id, store_name, name, description, version, total_reviews, stars, 
-                    analysis_results, manifest, ai_summary, last_updated
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO extensions (id, store_name, result_blob, last_updated)
+                VALUES (?, ?, ?, ?)
                 """,
                 (
                     self.extension_id,
                     self.store_name,
-                    result["extension_details"]["name"],
-                    result["extension_details"]["description"],
-                    result["extension_details"]["version"],
-                    result["extension_details"]["total_reviews"],
-                    result["extension_details"]["stars"],
-                    json.dumps(result["analysis_results"]),
-                    json.dumps(result["analysis_results"]["manifest"]) if result["analysis_results"]["manifest"] else "N/A",
-                    result["summary"],
+                    result_blob,
                     result["metadata"]["analyzed_at"]
                 )
             )
