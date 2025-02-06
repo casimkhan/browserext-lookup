@@ -208,7 +208,7 @@ def main():
             }
             /* Analysis button styling */
             .stButton>button {
-                background-color: #2196F3 !important;
+                background-color: #4A4A4A !important;
                 color: black !important;
                 border-radius: 20px;
                 padding: 10px 25px;
