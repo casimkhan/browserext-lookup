@@ -44,7 +44,7 @@ class DatabaseManager:
 
     def initialize(self):
         with self.get_connection() as conn:
-            # Using a full JSON blob approach to cache the complete analysis result
+            # Create table with a full JSON blob column to cache the complete analysis result.
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS extensions (
                     id TEXT,
@@ -170,7 +170,7 @@ class ExtensionAnalyzer:
             # Log the response
             logger.info(f"Backend response: {result}")
 
-            # Cache the full result as a JSON blob
+            # Cache the full result as a JSON blob in the result_blob column
             await self._cache_results(result)
 
             # Cleanup downloaded file
@@ -230,11 +230,11 @@ class ExtensionAnalyzer:
             response = requests.get(url, stream=True, headers={"User-Agent": USER_AGENT})
             response.raise_for_status()
 
-            # Save directly as zip after processing CRX headers
+            # Save directly as ZIP after processing CRX headers
             zip_path = f"/tmp/{self.extension_id}.zip"
             crx_data = response.content
 
-            # Process CRX headers to get actual zip data
+            # Process CRX headers to get actual ZIP data
             zip_data = self._process_crx_headers(crx_data)
 
             with open(zip_path, 'wb') as f:
@@ -384,7 +384,7 @@ class ExtensionAnalyzer:
             return "Failed to generate security summary."
 
     async def _cache_results(self, result: Dict[str, Any]):
-        """Cache the full analysis result as a JSON blob in the database"""
+        """Cache the full analysis result as a JSON blob in the database."""
         result_blob = json.dumps(result)
         with self.db.get_connection() as conn:
             conn.execute(
@@ -404,7 +404,7 @@ class ExtensionAnalyzer:
 @app.post("/analyze")
 async def analyze_extension(body: dict = Body(...)):
     """
-    Analyze a browser extension with AI-powered summary
+    Analyze a browser extension with AI-powered summary.
     """
     extension_id = body.get("extension_id")
     store_name = body.get("store_name")
