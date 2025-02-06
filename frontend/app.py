@@ -182,8 +182,8 @@ def main():
     st.markdown("""
         <style>
             .stApp {
-                background-color: #2C3E50;  /* Changed to metallic gray */
-                color: #FFFFFF;
+                background-color: #FFFFFF !important;  /* Changed to white */
+                color: #000000 !important;
             }
             /* Input fields styling */
             .stTextInput>div>div>input {
