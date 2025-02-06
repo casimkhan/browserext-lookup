@@ -235,7 +235,7 @@ def main():
             }
             /* Extension ID label styling */
             .stTextInput>label {
-                color: white !important;  /* Changed to white */
+                color: black !important;  /* Changed to white */
             }
         </style>
     """, unsafe_allow_html=True)
